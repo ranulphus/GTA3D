@@ -32,7 +32,7 @@ func _ready() -> void:
 
 	var city_mesh := MapBuilder.build(map, style)
 	add_child(city_mesh)
-	city_mesh.create_trimesh_collision()
+	add_child(MapBuilder.build_heightfield_collision(map))
 
 	var center := GTA1Map.DIM / 2.0
 	var we := WorldEnvironment.new()
@@ -42,7 +42,7 @@ func _ready() -> void:
 	Scenery.add_ground(self, center, SEA_LEVEL)
 
 	var spawn := SpawnFinder.find_drive_spawn(map)
-	var surface_y := float(map.get_num_blocks(spawn.x, spawn.y))
+	var surface_y := float(map.get_surface_y(spawn.x, spawn.y))
 	var sx := spawn.x + 0.5
 	var sz := spawn.y + 0.5
 

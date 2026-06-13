@@ -126,3 +126,21 @@ func get_block(x: int, y: int, z: int) -> GTA1Block:
 		return null
 	var block_id: int = columns[wi + (n - z)]
 	return blocks[block_id]
+
+
+## World Y of the drivable/visible surface at (x, y): the top of the highest
+## SOLID (non-flat, non-empty) block. Columns are mostly air with content at
+## scattered levels, so this is NOT the same as get_num_blocks. Flat decals
+## (overpass markings etc.) are ignored so we get the real ground/road/roof.
+func get_surface_y(x: int, y: int) -> int:
+	var n: int = get_num_blocks(x, y)
+	for z in range(n - 1, -1, -1):
+		var b := get_block(x, y, z)
+		if b != null and not b.is_empty() and not b.is_flat():
+			return z + 1
+	# Fallback: highest non-empty block even if flat.
+	for z in range(n - 1, -1, -1):
+		var b := get_block(x, y, z)
+		if b != null and not b.is_empty():
+			return z + 1
+	return 0

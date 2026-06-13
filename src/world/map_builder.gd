@@ -42,6 +42,9 @@ static func build(map: GTA1Map, style: GTA1Style, region := Rect2i(0, 0, GTA1Map
 					continue
 				_emit_block(verts, normals, uvs, indices, atlas, style, map, b, x, y, z,
 					float(x), float(z), float(y))
+			# Close height steps: GTA1 ground blocks have no side textures, so a
+			# step to a lower neighbour leaves a gap. Fill it with the surface tile.
+			_emit_skirt(verts, normals, uvs, indices, atlas, style, map, x, y)
 
 	var mesh := ArrayMesh.new()
 	if verts.is_empty():
@@ -70,6 +73,32 @@ static func build(map: GTA1Map, style: GTA1Style, region := Rect2i(0, 0, GTA1Map
 	return mi
 
 
+## Solid collision for the city: a HeightMapShape3D sampling the drivable surface
+## height per cell. Unlike a trimesh of the thin lids, this is solid below the
+## surface, so the car can't tunnel/bounce through it. Buildings become tall
+## heightfield columns (steep walls the car bumps into).
+static func build_heightfield_collision(map: GTA1Map) -> StaticBody3D:
+	var hf := HeightMapShape3D.new()
+	hf.map_width = GTA1Map.DIM
+	hf.map_depth = GTA1Map.DIM
+	var data := PackedFloat32Array()
+	data.resize(GTA1Map.DIM * GTA1Map.DIM)
+	for j in GTA1Map.DIM:
+		for i in GTA1Map.DIM:
+			data[j * GTA1Map.DIM + i] = float(map.get_surface_y(i, j))
+	hf.map_data = data
+
+	var body := StaticBody3D.new()
+	body.name = "CityCollision"
+	var cs := CollisionShape3D.new()
+	cs.shape = hf
+	body.add_child(cs)
+	# Heightfield grid point (i,j) sits at world (i+0.5, h, j+0.5) — the cell
+	# centre — when the body is centred at (DIM/2, 0, DIM/2).
+	body.position = Vector3(GTA1Map.DIM / 2.0, 0.0, GTA1Map.DIM / 2.0)
+	return body
+
+
 static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
 		map: GTA1Map, b: GTA1Block, x: int, y: int, z: int, fx: float, fy: float, fz: float) -> void:
 	if b.slope_type() == 0:
@@ -84,17 +113,10 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		b: GTA1Block, fx: float, fy: float, fz: float, st: int) -> void:
 	var sf: Array = SlopeData.faces[st]
 	var origin := Vector3(fx, fy, fz)
-	var flip_lr := b.flip_left_right()
-	var flip_tb := b.flip_top_bottom()
-	# face order: LID, NORTH(+Z), SOUTH(-Z), WEST(-X), EAST(+X)
+	# face order: LID, NORTH(+Z), SOUTH(-Z), WEST(-X), EAST(+X). Only the lid is
+	# rotated; walls use the tile as-is (flips disabled — see _emit_cube).
 	var bytes := [b.lid, b.bottom, b.top, b.left, b.right]
-	# UV transform per face: lid gets rotation; N/S walls get top-bottom flip;
-	# W/E walls get left-right flip.
-	var face_uv: Array = [
-		_uv(b.rotation(), flip_lr, flip_tb),
-		_uv(0, flip_tb, false), _uv(0, flip_tb, false),
-		_uv(0, flip_lr, false), _uv(0, flip_lr, false),
-	]
+	var lid_uv: Array = _uv(b.rotation(), false, false)
 	for fi in 5:
 		var byte: int = bytes[fi]
 		if byte <= 0:
@@ -108,7 +130,49 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		if nrm.length() < 0.0001:
 			continue  # degenerate (collapsed) face
 		var slot := (style.num_side + byte) if fi == 0 else byte
-		_face(verts, normals, uvs, indices, atlas, slot, nrm.normalized(), a, bb, c, d, face_uv[fi])
+		var luv: Array = lid_uv if fi == 0 else BASE_UV
+		_face(verts, normals, uvs, indices, atlas, slot, nrm.normalized(), a, bb, c, d, luv)
+
+
+## Vertical "skirt" walls that close the gaps where a cell's drivable surface
+## steps down to a lower neighbour (or the map edge / water). Textured with the
+## cell's own surface (lid) tile so it blends with the ground above it.
+static func _emit_skirt(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
+		map: GTA1Map, x: int, y: int) -> void:
+	var sy := map.get_surface_y(x, y)
+	if sy <= 0:
+		return
+	var sb := map.get_block(x, y, sy - 1)
+	if sb == null or sb.lid <= 0:
+		return
+	var slot := style.num_side + sb.lid
+	var x0 := float(x)
+	var x1 := x0 + BLOCK
+	var z0 := float(y)
+	var z1 := z0 + BLOCK
+	var hi := float(sy)
+
+	var n_xm := map.get_surface_y(x - 1, y) if x > 0 else 0
+	var n_xp := map.get_surface_y(x + 1, y) if x < GTA1Map.DIM - 1 else 0
+	var n_zm := map.get_surface_y(x, y - 1) if y > 0 else 0
+	var n_zp := map.get_surface_y(x, y + 1) if y < GTA1Map.DIM - 1 else 0
+
+	if n_xm < sy:
+		var lo := float(n_xm)
+		_face(verts, normals, uvs, indices, atlas, slot, Vector3.LEFT,
+			Vector3(x0, lo, z1), Vector3(x0, lo, z0), Vector3(x0, hi, z0), Vector3(x0, hi, z1))
+	if n_xp < sy:
+		var lo := float(n_xp)
+		_face(verts, normals, uvs, indices, atlas, slot, Vector3.RIGHT,
+			Vector3(x1, lo, z0), Vector3(x1, lo, z1), Vector3(x1, hi, z1), Vector3(x1, hi, z0))
+	if n_zm < sy:
+		var lo := float(n_zm)
+		_face(verts, normals, uvs, indices, atlas, slot, Vector3.FORWARD,
+			Vector3(x1, lo, z0), Vector3(x0, lo, z0), Vector3(x0, hi, z0), Vector3(x1, hi, z0))
+	if n_zp < sy:
+		var lo := float(n_zp)
+		_face(verts, normals, uvs, indices, atlas, slot, Vector3.BACK,
+			Vector3(x0, lo, z1), Vector3(x1, lo, z1), Vector3(x1, hi, z1), Vector3(x0, hi, z1))
 
 
 ## Full cube (slope type 0): emit only the faces whose neighbour is empty.
@@ -120,34 +184,29 @@ static func _emit_cube(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	var y1 := fy + BLOCK
 	var z0 := fz
 	var z1 := fz + BLOCK
-	var flip_lr := b.flip_left_right()
-	var flip_tb := b.flip_top_bottom()
 
-	# Lid / top (+Y) — the rotation/flip mainly drives road markings & arrows.
+	# Lid / top (+Y) — only the lid is rotated (0/90/180/270), per OpenGTA. Flips
+	# are NOT applied to the lid; mirroring it warps road markings/arrows.
 	if b.lid > 0 and not _solid(map, x, y, z + 1):
 		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
 			Vector3(x0, y1, z0), Vector3(x1, y1, z0), Vector3(x1, y1, z1), Vector3(x0, y1, z1),
-			_uv(b.rotation(), flip_lr, flip_tb))
+			_uv(b.rotation(), false, false))
 	# Left (-X)
 	if b.left > 0 and not _solid(map, x - 1, y, z):
 		_face(verts, normals, uvs, indices, atlas, b.left, Vector3.LEFT,
-			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1),
-			_uv(0, flip_lr, false))
+			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1))
 	# Right (+X)
 	if b.right > 0 and not _solid(map, x + 1, y, z):
 		_face(verts, normals, uvs, indices, atlas, b.right, Vector3.RIGHT,
-			Vector3(x1, y0, z0), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0),
-			_uv(0, flip_lr, false))
+			Vector3(x1, y0, z0), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0))
 	# Top wall / north (-Z)
 	if b.top > 0 and not _solid(map, x, y - 1, z):
 		_face(verts, normals, uvs, indices, atlas, b.top, Vector3.FORWARD,
-			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0),
-			_uv(0, flip_tb, false))
+			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0))
 	# Bottom wall / south (+Z)
 	if b.bottom > 0 and not _solid(map, x, y + 1, z):
 		_face(verts, normals, uvs, indices, atlas, b.bottom, Vector3.BACK,
-			Vector3(x0, y0, z1), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x0, y1, z1),
-			_uv(0, flip_tb, false))
+			Vector3(x0, y0, z1), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x0, y1, z1))
 
 
 ## Local UV corners matching the a->b->c->d vertex winding (OpenGTA lidTex order).
