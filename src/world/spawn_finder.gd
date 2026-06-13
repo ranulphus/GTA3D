@@ -1,19 +1,25 @@
 class_name SpawnFinder
 extends RefCounted
 
-## Finds a sensible place to drop a car: a flat, ground-level stretch of road
-## running along +Z (the car's forward axis), wide enough for the car and clear
-## ahead. Uses the real drivable surface height (get_surface_y) — GTA1 columns
-## are mostly air with content at scattered levels, so the surface is the highest
+## Finds a good place to drop the car: an OPEN, flat, ground-level patch that is
+## road-shaped — long in one direction and narrow across — so the car lands on an
+## actual street facing down it, not wedged against a wall and not stranded in the
+## middle of a wide grass park (which is open but fenced-in, so you can't drive
+## out). Uses the real drivable surface height (get_surface_y): GTA1 columns are
+## mostly air with content at scattered levels, so the surface is the highest
 ## SOLID block, not the raw block count.
 
-const ROAD_DIR := Vector2i(0, 1)
-const MIN_RUN := 6
-const MAX_GROUND_Y := 3   # skip building roofs; keep spawns at street level
+const MIN_RUN := 6          # shortest run that still counts as "a street ahead"
+const ROAD_MIN_LEN := 10    # a real street stretches at least this far...
+const ROAD_MAX_WIDTH := 6   # ...and is no wider than this across (parks are wider)
+const MAX_GROUND_Y := 3     # skip building roofs; keep spawns at street level
 
 
-static func find_drive_spawn(map: GTA1Map) -> Vector2i:
+## Position + forward direction (unit grid step) for the car. Direction points
+## down the road's long axis so the car spawns aimed along the street.
+static func find_drive_spawn_full(map: GTA1Map) -> Dictionary:
 	var c := GTA1Map.DIM / 2
+	var fallback := {}
 	for radius in range(0, 120):
 		for dx in range(-radius, radius + 1):
 			for dy in range(-radius, radius + 1):
@@ -24,43 +30,65 @@ static func find_drive_spawn(map: GTA1Map) -> Vector2i:
 				if not drivable(map, x, y):
 					continue
 				var h := map.get_surface_y(x, y)
-				var run := 0
-				for s in range(1, 13):
-					if _flat_road(map, x + ROAD_DIR.x * s, y + ROAD_DIR.y * s, h):
-						run += 1
-					else:
-						break
-				if run >= MIN_RUN and _fits(map, x, y, h):
-					return Vector2i(x, y)
-	return Vector2i(c, c)
+				if not _open_3x3(map, x, y, h):
+					continue
+				var run_z := _run(map, x, y, h, 0, 1) + _run(map, x, y, h, 0, -1) + 1
+				var run_x := _run(map, x, y, h, 1, 0) + _run(map, x, y, h, -1, 0) + 1
+				var length := maxi(run_z, run_x)
+				var width := mini(run_z, run_x)
+				var dir := Vector2i(0, 1) if run_z >= run_x else Vector2i(1, 0)
+				if fallback.is_empty() and length >= MIN_RUN:
+					fallback = {"pos": Vector2i(x, y), "dir": dir}
+				if length >= ROAD_MIN_LEN and width <= ROAD_MAX_WIDTH:
+					return {"pos": Vector2i(x, y), "dir": dir}
+	if not fallback.is_empty():
+		return fallback
+	return {"pos": Vector2i(c, c), "dir": Vector2i(0, 1)}
 
 
-## A ground-level cell whose surface block actually has a lid to drive on.
+## Back-compat: just the grid position.
+static func find_drive_spawn(map: GTA1Map) -> Vector2i:
+	return find_drive_spawn_full(map)["pos"]
+
+
+## A street-level cell whose surface is a real, wall-less road/ground top (a lid
+## with no side textures) — i.e. something the car can sit and drive on.
 static func drivable(map: GTA1Map, x: int, y: int) -> bool:
 	if x < 1 or y < 1 or x >= GTA1Map.DIM - 1 or y >= GTA1Map.DIM - 1:
 		return false
 	var h := map.get_surface_y(x, y)
 	if h < 1 or h > MAX_GROUND_Y:
 		return false
-	return _surface_has_lid(map, x, y)
+	var sb := map.get_block(x, y, h - 1)
+	if sb == null or sb.lid <= 0:
+		return false
+	# Side textures mean a wall/fence/building face here — not open ground.
+	return sb.left == 0 and sb.right == 0 and sb.top == 0 and sb.bottom == 0
 
 
-## True if the highest solid (non-flat) block has a lid (a real road/ground top).
-static func _surface_has_lid(map: GTA1Map, x: int, y: int) -> bool:
-	var n := map.get_num_blocks(x, y)
-	for z in range(n - 1, -1, -1):
-		var b := map.get_block(x, y, z)
-		if b != null and not b.is_empty() and not b.is_flat():
-			return b.lid > 0
-	return false
+## Every one of the 8 surrounding cells is drivable ground at the same height, so
+## the car drops onto open road rather than wedged against a kerb, wall or fence.
+static func _open_3x3(map: GTA1Map, x: int, y: int, h: int) -> bool:
+	for ox in [-1, 0, 1]:
+		for oy in [-1, 0, 1]:
+			if ox == 0 and oy == 0:
+				continue
+			if not drivable(map, x + ox, y + oy):
+				return false
+			if map.get_surface_y(x + ox, y + oy) != h:
+				return false
+	return true
 
 
-static func _flat_road(map: GTA1Map, x: int, y: int, h: int) -> bool:
-	return drivable(map, x, y) and map.get_surface_y(x, y) == h
-
-
-## The cell and both immediate sides share the same surface height, so the
-## ~1.5-wide car sits on a level road rather than straddling a step.
-static func _fits(map: GTA1Map, x: int, y: int, h: int) -> bool:
-	var perp := Vector2i(ROAD_DIR.y, ROAD_DIR.x)
-	return _flat_road(map, x + perp.x, y + perp.y, h) and _flat_road(map, x - perp.x, y - perp.y, h)
+## Count consecutive drivable, same-height cells stepping (dx,dy) from (x,y),
+## excluding the start cell. Capped so wide-open areas don't run forever.
+static func _run(map: GTA1Map, x: int, y: int, h: int, dx: int, dy: int) -> int:
+	var run := 0
+	for s in range(1, 40):
+		var nx := x + dx * s
+		var ny := y + dy * s
+		if drivable(map, nx, ny) and map.get_surface_y(nx, ny) == h:
+			run += 1
+		else:
+			break
+	return run

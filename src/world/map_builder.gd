@@ -101,10 +101,53 @@ static func build_heightfield_collision(map: GTA1Map) -> StaticBody3D:
 
 static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
 		map: GTA1Map, b: GTA1Block, x: int, y: int, z: int, fx: float, fy: float, fz: float) -> void:
-	if b.slope_type() == 0:
+	if b.is_flat():
+		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz)
+	elif b.slope_type() == 0:
 		_emit_cube(verts, normals, uvs, indices, atlas, style, map, b, x, y, z, fx, fy, fz)
 	else:
 		_emit_slope(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, b.slope_type())
+
+
+## Flat blocks are zero-thickness decals/panels, not cubes: road markings, painted
+## details, fences, railings. GTA1 stores ~9% of blocks this way, mostly floating
+## a level above the road as overlay lids. Drawing them as full cubes produced
+## floating boxes and fence "crates". Instead we emit a single thin quad per face:
+## the lid as a flat decal laid on the surface below (block base, not top), and
+## each side byte as one upright panel at its boundary plane. CULL_DISABLED makes
+## the panels visible from both sides. A small epsilon keeps them off neighbouring
+## planes to avoid z-fighting.
+const FLAT_EPS := 0.03
+static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
+		b: GTA1Block, fx: float, fy: float, fz: float) -> void:
+	var x0 := fx
+	var x1 := fx + BLOCK
+	var y0 := fy
+	var y1 := fy + BLOCK
+	var z0 := fz
+	var z1 := fz + BLOCK
+
+	if b.lid > 0:
+		var yl := y0 + FLAT_EPS  # lay the decal on the surface below, not floating on top
+		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
+			Vector3(x0, yl, z1), Vector3(x1, yl, z1), Vector3(x1, yl, z0), Vector3(x0, yl, z0),
+			_uv(b.rotation(), false, false))
+	if b.left > 0:
+		var xl := x0 + FLAT_EPS
+		_face(verts, normals, uvs, indices, atlas, b.left, Vector3.LEFT,
+			Vector3(xl, y0, z1), Vector3(xl, y0, z0), Vector3(xl, y1, z0), Vector3(xl, y1, z1))
+	if b.right > 0:
+		var xr := x1 - FLAT_EPS
+		_face(verts, normals, uvs, indices, atlas, b.right, Vector3.RIGHT,
+			Vector3(xr, y0, z0), Vector3(xr, y0, z1), Vector3(xr, y1, z1), Vector3(xr, y1, z0))
+	if b.top > 0:
+		var zt := z0 + FLAT_EPS
+		_face(verts, normals, uvs, indices, atlas, b.top, Vector3.FORWARD,
+			Vector3(x1, y0, zt), Vector3(x0, y0, zt), Vector3(x0, y1, zt), Vector3(x1, y1, zt))
+	if b.bottom > 0:
+		var zb := z1 - FLAT_EPS
+		_face(verts, normals, uvs, indices, atlas, b.bottom, Vector3.BACK,
+			Vector3(x0, y0, zb), Vector3(x1, y0, zb), Vector3(x1, y1, zb), Vector3(x0, y1, zb))
 
 
 ## Slope/ramp blocks: emit the exact per-face geometry for this slope type (1-44)
@@ -144,6 +187,13 @@ static func _emit_skirt(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		return
 	var sb := map.get_block(x, y, sy - 1)
 	if sb == null or sb.lid <= 0:
+		return
+	# Only "lid-only" ground blocks (roads, pavement, grass) need skirts: they
+	# carry no side textures, so a step down to a lower neighbour leaves an open
+	# gap. Blocks that DO have side textures (buildings, fences, walls) already
+	# get real walls from _emit_cube — skirting them would draw a second wall
+	# (textured with the roof/lid tile) flush over the first and z-fight it.
+	if sb.left != 0 or sb.right != 0 or sb.top != 0 or sb.bottom != 0:
 		return
 	var slot := style.num_side + sb.lid
 	var x0 := float(x)
@@ -186,10 +236,13 @@ static func _emit_cube(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	var z1 := fz + BLOCK
 
 	# Lid / top (+Y) — only the lid is rotated (0/90/180/270), per OpenGTA. Flips
-	# are NOT applied to the lid; mirroring it warps road markings/arrows.
+	# are NOT applied to the lid; mirroring it warps road markings/arrows. The
+	# vertex order (z1->z1->z0->z0) matches OpenGTA's SLOPE_RAW_DATA[0][0] so the
+	# tile's V axis runs +Z (south); the earlier z0-first order mirrored every
+	# road lid north-south, which scrambled kerbs/junctions once rotated.
 	if b.lid > 0 and not _solid(map, x, y, z + 1):
 		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
-			Vector3(x0, y1, z0), Vector3(x1, y1, z0), Vector3(x1, y1, z1), Vector3(x0, y1, z1),
+			Vector3(x0, y1, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0), Vector3(x0, y1, z0),
 			_uv(b.rotation(), false, false))
 	# Left (-X)
 	if b.left > 0 and not _solid(map, x - 1, y, z):

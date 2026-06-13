@@ -15,6 +15,7 @@ const MOUSE_SENS := 0.004
 var car: Car
 var _cam: Camera3D
 var _spawn_pos := Vector3.ZERO
+var _spawn_basis := Basis.IDENTITY
 var _hud: Label
 var _fly := false
 var _yaw := 0.0
@@ -41,10 +42,12 @@ func _ready() -> void:
 	Scenery.add_sun(self)
 	Scenery.add_ground(self, center, SEA_LEVEL)
 
-	var spawn := SpawnFinder.find_drive_spawn(map)
-	var surface_y := float(map.get_surface_y(spawn.x, spawn.y))
-	var sx := spawn.x + 0.5
-	var sz := spawn.y + 0.5
+	var spawn := SpawnFinder.find_drive_spawn_full(map)
+	var spawn_cell: Vector2i = spawn["pos"]
+	var spawn_dir: Vector2i = spawn["dir"]
+	var surface_y := float(map.get_surface_y(spawn_cell.x, spawn_cell.y))
+	var sx := spawn_cell.x + 0.5
+	var sz := spawn_cell.y + 0.5
 
 	# The city's concave collision shape takes a few frames to bake into the
 	# physics server. Wait until a downward ray actually hits the road, and use
@@ -56,7 +59,10 @@ func _ready() -> void:
 	car = Car.new()
 	add_child(car)
 	_spawn_pos = Vector3(sx, floor_y + 0.15, sz)
-	car.global_position = _spawn_pos
+	# Face the car down the road's long axis (Basis.looking_at points -Z, the
+	# vehicle's forward, along the given direction).
+	_spawn_basis = Basis.looking_at(Vector3(spawn_dir.x, 0, spawn_dir.y))
+	car.global_transform = Transform3D(_spawn_basis, _spawn_pos)
 
 	_cam = Camera3D.new()
 	_cam.fov = 70.0
@@ -97,7 +103,7 @@ func _physics_process(_delta: float) -> void:
 	if car.global_position.y < -3.0:
 		car.linear_velocity = Vector3.ZERO
 		car.angular_velocity = Vector3.ZERO
-		car.global_position = _spawn_pos
+		car.global_transform = Transform3D(_spawn_basis, _spawn_pos)
 	if _cam != null and not _fly:
 		_place_camera(camera_smooth)
 
