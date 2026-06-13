@@ -9,6 +9,13 @@ const FLY_SPEED := 22.0
 const FLY_BOOST := 3.5
 const MOUSE_SENS := 0.004
 
+# Chase camera framing (tuned for the ~1-unit-wide car): how far behind and above
+# the car the camera sits, and where ahead/up it aims.
+const CAM_DIST := 4.2
+const CAM_HEIGHT := 1.9
+const CAM_LOOK_AHEAD := 4.0
+const CAM_LOOK_HEIGHT := 0.6
+
 @export var city := "NYC"
 @export_range(0.0, 1.0) var camera_smooth := 0.12
 
@@ -116,9 +123,9 @@ func _place_camera(weight: float) -> void:
 	var flat := Vector3(fwd.x, 0.0, fwd.z)
 	flat = Vector3(0, 0, 1) if flat.length() < 0.05 else flat.normalized()
 
-	var target := car.global_position - flat * 7.0 + Vector3(0, 3.2, 0)
+	var target := car.global_position - flat * CAM_DIST + Vector3(0, CAM_HEIGHT, 0)
 	_cam.global_position = _cam.global_position.lerp(target, weight) if weight < 1.0 else target
-	_cam.look_at(car.global_position + flat * 6.0 + Vector3(0, 0.6, 0), Vector3.UP)
+	_cam.look_at(car.global_position + flat * CAM_LOOK_AHEAD + Vector3(0, CAM_LOOK_HEIGHT, 0), Vector3.UP)
 
 
 # --- free-fly camera ---
