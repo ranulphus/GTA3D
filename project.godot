@@ -1,0 +1,21 @@
+; Engine configuration file.
+; GTA3D — open-source street-level 3D recreation of the original GTA.
+; Uses the player's own original GTA1 data files (placed under res://data/).
+
+config_version=5
+
+[application]
+
+config/name="GTA3D"
+config/description="An open-source, street-level (3D) re-imagining of the original top-down Grand Theft Auto, rendered with a real 3D engine while reading the original GTA1 game data files. In the spirit of OpenGTA."
+run/main_scene="res://scenes/Drive.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
+config/icon="res://icon.svg"
+
+[debug]
+
+gdscript/warnings/untyped_declaration=1
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0

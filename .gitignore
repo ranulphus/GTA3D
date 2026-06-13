@@ -1,0 +1,15 @@
+# Godot 4 editor cache (regenerated on first open)
+.godot/
+
+# Original GTA1 game data — copyright DMA Design / Rockstar Games, NEVER commit
+/data/*
+!/data/README.md
+
+# Build artifacts & headless render/validation dumps
+/build/
+/_dump/
+
+# OS / editor cruft
+.DS_Store
+*.tmp
+*.swp
