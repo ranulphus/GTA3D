@@ -164,6 +164,13 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		var byte: int = bytes[fi]
 		if byte <= 0:
 			continue
+		# Diagonal slopes 41-44 each have one side replaced by the diagonal lid, so
+		# OpenGTA omits that square side face; drawing it leaves a spurious vertical
+		# quad standing across the diagonal (very visible on exposed bridge edges).
+		# fi 1=bottom,2=top,3=left,4=right.
+		if (fi == 1 and st == 41) or (fi == 2 and st == 42) \
+				or (fi == 3 and st == 44) or (fi == 4 and st == 43):
+			continue
 		var quad: PackedVector3Array = sf[fi]
 		var a := origin + quad[0]
 		var bb := origin + quad[1]
@@ -177,9 +184,15 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		_face(verts, normals, uvs, indices, atlas, slot, nrm.normalized(), a, bb, c, d, luv)
 
 
-## Vertical "skirt" walls that close the gaps where a cell's drivable surface
-## steps down to a lower neighbour (or the map edge / water). Textured with the
-## cell's own surface (lid) tile so it blends with the ground above it.
+## Vertical "skirt" walls that close the 1-unit gap where one flat ground cell
+## steps down to a flat neighbour one level lower (a kerb, a sunken plaza edge).
+## Textured with the cell's own surface (lid) tile so it blends with the ground.
+##
+## Deliberately narrow: only flat cube ground (slope_type 0, no side textures)
+## skirts, only against a flat neighbour exactly one unit lower. Ramps already
+## bridge heights with their own geometry, and tall drops (bridge decks over
+## water/road) used to get filled with metre-tall ROAD-textured walls that read
+## as vertical "fences" — so neither is skirted now.
 static func _emit_skirt(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
 		map: GTA1Map, x: int, y: int) -> void:
 	var sy := map.get_surface_y(x, y)
@@ -188,12 +201,11 @@ static func _emit_skirt(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 	var sb := map.get_block(x, y, sy - 1)
 	if sb == null or sb.lid <= 0:
 		return
-	# Only "lid-only" ground blocks (roads, pavement, grass) need skirts: they
-	# carry no side textures, so a step down to a lower neighbour leaves an open
-	# gap. Blocks that DO have side textures (buildings, fences, walls) already
-	# get real walls from _emit_cube — skirting them would draw a second wall
-	# (textured with the roof/lid tile) flush over the first and z-fight it.
+	# Skip walled blocks (buildings/fences already have real walls) and ramps
+	# (their slope geometry already connects the heights).
 	if sb.left != 0 or sb.right != 0 or sb.top != 0 or sb.bottom != 0:
+		return
+	if sb.slope_type() != 0:
 		return
 	var slot := style.num_side + sb.lid
 	var x0 := float(x)
@@ -201,28 +213,36 @@ static func _emit_skirt(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 	var z0 := float(y)
 	var z1 := z0 + BLOCK
 	var hi := float(sy)
+	var lo := float(sy - 1)
 
-	var n_xm := map.get_surface_y(x - 1, y) if x > 0 else 0
-	var n_xp := map.get_surface_y(x + 1, y) if x < GTA1Map.DIM - 1 else 0
-	var n_zm := map.get_surface_y(x, y - 1) if y > 0 else 0
-	var n_zp := map.get_surface_y(x, y + 1) if y < GTA1Map.DIM - 1 else 0
-
-	if n_xm < sy:
-		var lo := float(n_xm)
+	if _flat_step_down(map, x - 1, y, sy):
 		_face(verts, normals, uvs, indices, atlas, slot, Vector3.LEFT,
 			Vector3(x0, lo, z1), Vector3(x0, lo, z0), Vector3(x0, hi, z0), Vector3(x0, hi, z1))
-	if n_xp < sy:
-		var lo := float(n_xp)
+	if _flat_step_down(map, x + 1, y, sy):
 		_face(verts, normals, uvs, indices, atlas, slot, Vector3.RIGHT,
 			Vector3(x1, lo, z0), Vector3(x1, lo, z1), Vector3(x1, hi, z1), Vector3(x1, hi, z0))
-	if n_zm < sy:
-		var lo := float(n_zm)
+	if _flat_step_down(map, x, y - 1, sy):
 		_face(verts, normals, uvs, indices, atlas, slot, Vector3.FORWARD,
 			Vector3(x1, lo, z0), Vector3(x0, lo, z0), Vector3(x0, hi, z0), Vector3(x1, hi, z0))
-	if n_zp < sy:
-		var lo := float(n_zp)
+	if _flat_step_down(map, x, y + 1, sy):
 		_face(verts, normals, uvs, indices, atlas, slot, Vector3.BACK,
 			Vector3(x0, lo, z1), Vector3(x1, lo, z1), Vector3(x1, hi, z1), Vector3(x0, hi, z1))
+
+
+## True if neighbour (nx,ny) is flat ground exactly one unit below sy — the only
+## case worth closing with a skirt. A ramp neighbour returns false (the slope
+## geometry already meets the gap), and so does any drop of two or more units.
+static func _flat_step_down(map: GTA1Map, nx: int, ny: int, sy: int) -> bool:
+	if nx < 0 or ny < 0 or nx >= GTA1Map.DIM or ny >= GTA1Map.DIM:
+		return false
+	var nsy := map.get_surface_y(nx, ny)
+	if nsy != sy - 1:
+		return false
+	if nsy > 0:
+		var nb := map.get_block(nx, ny, nsy - 1)
+		if nb != null and nb.slope_type() != 0:
+			return false
+	return true
 
 
 ## Full cube (slope type 0): emit only the faces whose neighbour is empty.
