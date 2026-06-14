@@ -2,9 +2,9 @@ PSX Style Cars by ggbot
 https://ggbot.itch.io/psx-style-cars
 License: Creative Commons Zero v1.0 Universal (CC0 1.0) — public domain.
 
-Used in GTA3D as the drivable vehicles. Car bodies are single meshes; the shared
-Wheel.obj is mounted on each wheel at runtime, and colour/style variants reuse one
-body mesh with a different .png skin (applied as a material override).
+Used in GTA3D as the drivable vehicles. Each car is a single mesh with its wheels
+modelled in; invisible VehicleWheel3D provide the physics. Colour/style variants
+reuse one body mesh with a different .png skin (applied as a material override).
 
 In the [C] cycle: Car 01/04/08 (4 colours each), Car 02/03 (3 each), Car 05
 (taxi + police bodies). Car 06 is the burnt-out body, kept for a future

@@ -17,12 +17,11 @@ const CAM_LOOK_AHEAD := 3.2
 const CAM_LOOK_HEIGHT := 0.4
 
 # Cycleable PSX-style cars (ggbot, CC0). [C] switches between them at runtime. The
-# bodies ship without wheels, so a shared wheel model is mounted on each. PSX_YAW
+# bodies model their own wheels, so the physics wheels stay invisible. PSX_YAW
 # turns a body so its hood faces -Z (drive-forward); tuned to the pack's models.
 # Each entry is a body mesh + a texture: colour/style variants reuse one mesh with
 # a different skin. Car 06 (burnt-out) is reserved for explosions; Car 07 is
 # excluded (not period appropriate).
-const WHEEL_MODEL := "res://assets/vehicles/psx/wheel/Wheel.obj"
 const PSX_YAW := 180.0
 const _C1 := "res://assets/vehicles/psx/car1/Car.obj"
 const _C2 := "res://assets/vehicles/psx/car2/Car2.obj"
@@ -211,7 +210,6 @@ func _spawn_car(idx: int, xform: Transform3D) -> void:
 	car.model_path = spec["obj"]
 	car.texture_path = spec["tex"]
 	car.model_yaw_deg = PSX_YAW
-	car.wheel_model_path = WHEEL_MODEL
 	car.use_input = not _fly
 	add_child(car)
 	car.global_transform = xform

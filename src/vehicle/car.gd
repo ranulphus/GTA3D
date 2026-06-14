@@ -27,10 +27,10 @@ const WHEEL_NAMES := ["wheel-front-left", "wheel-front-right", "wheel-back-left"
 ## Yaw (degrees) turning the model so its hood points down -Z (the drive axis).
 ## The PSX cars (and the old Kenney sedan) face +Z, hence 180. Per-model.
 @export var model_yaw_deg := 180.0
-## Optional separate wheel model mounted on the synthesised wheels. Single-mesh
-## cars (the PSX pack) ship the body with no wheels; point this at a wheel mesh to
-## give them visible, spinning, steering wheels. Empty = invisible physics wheels.
-@export var wheel_model_path := "res://assets/vehicles/psx/wheel/Wheel.obj"
+## Optional separate wheel model mounted on the synthesised wheels, for bodies that
+## ship WITHOUT wheels. The PSX cars model their wheels into the body, so this is
+## empty by default (the physics wheels stay invisible to avoid doubling them).
+@export var wheel_model_path := ""
 ## Optional albedo texture override. One body mesh can be recoloured/re-skinned per
 ## cycle entry — the PSX cars ship colour and taxi/police variants as alternate
 ## textures over the same geometry. Empty = use the model's own baked material.
@@ -133,24 +133,31 @@ func _mount_wheels(src: Node, named: Dictionary, s: float) -> void:
 		wnode.scale = wnode.scale * s
 
 
-## Synthesise four wheels at the corners of the body box, for single-mesh cars
-## (PSX pack: body only, wheels are a separate model). If wheel_model_path is set
-## the wheel mesh is mounted on each so they spin and steer; otherwise the wheels
-## are invisible physics-only. Front (steering) pair sits toward -Z. `s` is the
-## car's uniform scale, applied to the wheel mesh so it matches.
+## Synthesise four VehicleWheel3D at the corners of the body box. The PSX bodies
+## have wheels modelled into the mesh, so by default the physics wheels are
+## INVISIBLE (no mounted mesh) and the suspension is stiff/short — the car rests on
+## its own modelled wheels with no bob or doubled wheels. The wheel bottoms are
+## placed at the body underside so the modelled wheels meet the road and the car
+## can't sink onto its chassis. If wheel_model_path is set, a wheel mesh is mounted
+## instead (kept for models that ship without wheels). `s` is the car's scale.
 func _synth_wheels(aabb: AABB, s: float) -> void:
 	var wheel_mesh: Mesh = _load_mesh(wheel_model_path) if wheel_model_path != "" else null
-	var native_r := (wheel_mesh.get_aabb().size.y * 0.5) if wheel_mesh != null else 0.5
-	var radius := maxf(native_r * s, 0.08)
 	var minp := aabb.position
 	var maxp := aabb.position + aabb.size
-	var inset := aabb.size.x * 0.10
+	var radius: float
+	if wheel_mesh != null:
+		radius = maxf(wheel_mesh.get_aabb().size.y * 0.5 * s, 0.08)
+	else:
+		radius = clampf(aabb.size.y * 0.22, 0.1, 0.3)   # ~ the modelled wheel radius
+	var inset := aabb.size.x * 0.06
 	var xl := maxp.x - inset
 	var xr := minp.x + inset
-	var z_front := minp.z + aabb.size.z * 0.21
-	var z_rear := minp.z + aabb.size.z * 0.79
+	var z_front := minp.z + aabb.size.z * 0.20
+	var z_rear := minp.z + aabb.size.z * 0.80
 	var z_mid := (z_front + z_rear) * 0.5
-	var wy := minp.y + radius * 0.5   # axle just above the underside so wheels meet the road
+	# Place the wheel so its bottom sits a hair below the body underside: the car
+	# settles with its modelled wheels on the road, not floating or buried.
+	var wy := minp.y + radius - 0.03
 	for p in [Vector3(xl, wy, z_front), Vector3(xr, wy, z_front),
 			Vector3(xl, wy, z_rear), Vector3(xr, wy, z_rear)]:
 		var wheel := VehicleWheel3D.new()
@@ -158,12 +165,13 @@ func _synth_wheels(aabb: AABB, s: float) -> void:
 		wheel.use_as_steering = p.z < z_mid
 		wheel.use_as_traction = true
 		wheel.wheel_radius = radius
-		wheel.suspension_travel = 0.3
-		wheel.suspension_stiffness = 30.0
+		# Stiff, short, well-damped: minimal body bob so the static wheels look right.
+		wheel.suspension_travel = 0.1
+		wheel.suspension_stiffness = 60.0
 		wheel.wheel_friction_slip = 10.5
-		wheel.damping_compression = 0.6
-		wheel.damping_relaxation = 0.9
-		wheel.wheel_rest_length = 0.1
+		wheel.damping_compression = 0.9
+		wheel.damping_relaxation = 1.0
+		wheel.wheel_rest_length = 0.04
 		add_child(wheel)
 		if wheel_mesh != null:
 			var mi := MeshInstance3D.new()
