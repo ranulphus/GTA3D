@@ -260,24 +260,24 @@ static func _emit_cube(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	# vertex order (z1->z1->z0->z0) matches OpenGTA's SLOPE_RAW_DATA[0][0] so the
 	# tile's V axis runs +Z (south); the earlier z0-first order mirrored every
 	# road lid north-south, which scrambled kerbs/junctions once rotated.
-	if b.lid > 0 and not _solid(map, x, y, z + 1):
+	if b.lid > 0 and not _occludes(map, x, y, z + 1):
 		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
 			Vector3(x0, y1, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0), Vector3(x0, y1, z0),
 			_uv(b.rotation(), false, false))
 	# Left (-X)
-	if b.left > 0 and not _solid(map, x - 1, y, z):
+	if b.left > 0 and not _occludes(map, x - 1, y, z):
 		_face(verts, normals, uvs, indices, atlas, b.left, Vector3.LEFT,
 			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1))
 	# Right (+X)
-	if b.right > 0 and not _solid(map, x + 1, y, z):
+	if b.right > 0 and not _occludes(map, x + 1, y, z):
 		_face(verts, normals, uvs, indices, atlas, b.right, Vector3.RIGHT,
 			Vector3(x1, y0, z0), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0))
 	# Top wall / north (-Z)
-	if b.top > 0 and not _solid(map, x, y - 1, z):
+	if b.top > 0 and not _occludes(map, x, y - 1, z):
 		_face(verts, normals, uvs, indices, atlas, b.top, Vector3.FORWARD,
 			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0))
 	# Bottom wall / south (+Z)
-	if b.bottom > 0 and not _solid(map, x, y + 1, z):
+	if b.bottom > 0 and not _occludes(map, x, y + 1, z):
 		_face(verts, normals, uvs, indices, atlas, b.bottom, Vector3.BACK,
 			Vector3(x0, y0, z1), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x0, y1, z1))
 
@@ -322,12 +322,17 @@ static func _face(verts: PackedVector3Array, normals: PackedVector3Array, uvs: P
 	indices.push_back(base); indices.push_back(base + 2); indices.push_back(base + 3)
 
 
-static func _solid(map: GTA1Map, x: int, y: int, z: int) -> bool:
+## Does the block at (x,y,z) FULLY hide the shared face of its neighbour? Only a
+## solid full cube does. A flat decal is paper-thin and a slope only partly fills
+## its cell, so both leave the face behind them exposed — culling against them was
+## punching thousands of holes in walls and roofs. Below ground occludes (no
+## downward faces are wanted); out of bounds does not.
+static func _occludes(map: GTA1Map, x: int, y: int, z: int) -> bool:
 	if x < 0 or y < 0 or x >= GTA1Map.DIM or y >= GTA1Map.DIM:
 		return false
 	if z < 0:
-		return true   # below ground counts as solid (don't draw downward faces)
+		return true
 	if z >= map.get_num_blocks(x, y):
 		return false
 	var b := map.get_block(x, y, z)
-	return b != null and not b.is_empty()
+	return b != null and not b.is_empty() and not b.is_flat() and b.slope_type() == 0
