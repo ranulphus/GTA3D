@@ -31,6 +31,10 @@ const WHEEL_NAMES := ["wheel-front-left", "wheel-front-right", "wheel-back-left"
 ## cars (the PSX pack) ship the body with no wheels; point this at a wheel mesh to
 ## give them visible, spinning, steering wheels. Empty = invisible physics wheels.
 @export var wheel_model_path := "res://assets/vehicles/psx/wheel/Wheel.obj"
+## Optional albedo texture override. One body mesh can be recoloured/re-skinned per
+## cycle entry — the PSX cars ship colour and taxi/police variants as alternate
+## textures over the same geometry. Empty = use the model's own baked material.
+@export var texture_path := ""
 
 var use_input := true
 var control_throttle := 0.0   # -1 (reverse) .. 1 (forward)
@@ -83,6 +87,15 @@ func _build() -> void:
 	body.position = body.position * s
 	body.scale = body.scale * s
 	body.rotate_y(deg_to_rad(model_yaw_deg))
+	if texture_path != "":
+		var tex := load(texture_path) as Texture2D
+		if tex != null:
+			var mat := StandardMaterial3D.new()
+			mat.albedo_texture = tex
+			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST  # crisp PSX look
+			mat.roughness = 1.0
+			mat.metallic = 0.0
+			body.material_override = mat
 
 	var aabb: AABB = body.transform * body.mesh.get_aabb()   # car-space, post scale+yaw
 

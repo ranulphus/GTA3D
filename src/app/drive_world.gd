@@ -19,17 +19,43 @@ const CAM_LOOK_HEIGHT := 0.4
 # Cycleable PSX-style cars (ggbot, CC0). [C] switches between them at runtime. The
 # bodies ship without wheels, so a shared wheel model is mounted on each. PSX_YAW
 # turns a body so its hood faces -Z (drive-forward); tuned to the pack's models.
+# Each entry is a body mesh + a texture: colour/style variants reuse one mesh with
+# a different skin. Car 06 (burnt-out) is reserved for explosions; Car 07 is
+# excluded (not period appropriate).
 const WHEEL_MODEL := "res://assets/vehicles/psx/wheel/Wheel.obj"
 const PSX_YAW := 180.0
+const _C1 := "res://assets/vehicles/psx/car1/Car.obj"
+const _C2 := "res://assets/vehicles/psx/car2/Car2.obj"
+const _C3 := "res://assets/vehicles/psx/car3/Car3.obj"
+const _C4 := "res://assets/vehicles/psx/car4/Car4.obj"
+const _C8 := "res://assets/vehicles/psx/car8/Car8.obj"
 const CAR_MODELS := [
-	"res://assets/vehicles/psx/car1/Car.obj",
-	"res://assets/vehicles/psx/car2/Car2.obj",
-	"res://assets/vehicles/psx/car3/Car3.obj",
-	"res://assets/vehicles/psx/car4/Car4.obj",
-	"res://assets/vehicles/psx/car5/Car5.obj",
-	"res://assets/vehicles/psx/car6/Car6.obj",
-	"res://assets/vehicles/psx/car7/Car7.obj",
-	"res://assets/vehicles/psx/car8/Car8.obj",
+	# Car 01 — wagon (4 colours)
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car.png"},
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_blue.png"},
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_gray.png"},
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_red.png"},
+	# Car 02 (3 colours)
+	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2.png"},
+	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2_black.png"},
+	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2_red.png"},
+	# Car 03 (3 colours)
+	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3.png"},
+	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3_red.png"},
+	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3_yellow.png"},
+	# Car 04 (4 colours)
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4.png"},
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_grey.png"},
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_lightgrey.png"},
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_lightorange.png"},
+	# Car 05 — taxi + police (2 styles, each its own body with a light bar)
+	{"obj": "res://assets/vehicles/psx/car5/Car5_Taxi.obj", "tex": "res://assets/vehicles/psx/car5/car5_taxi.png"},
+	{"obj": "res://assets/vehicles/psx/car5/Car5_Police.obj", "tex": "res://assets/vehicles/psx/car5/car5_police.png"},
+	# Car 08 — van (4 colours)
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8.png"},
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_grey.png"},
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_mail.png"},
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_purple.png"},
 ]
 
 @export var city := "NYC"
@@ -180,8 +206,10 @@ func _unhandled_input(event: InputEvent) -> void:
 func _spawn_car(idx: int, xform: Transform3D) -> void:
 	if car != null:
 		car.queue_free()
+	var spec: Dictionary = CAR_MODELS[idx]
 	car = Car.new()
-	car.model_path = CAR_MODELS[idx]
+	car.model_path = spec["obj"]
+	car.texture_path = spec["tex"]
 	car.model_yaw_deg = PSX_YAW
 	car.wheel_model_path = WHEEL_MODEL
 	car.use_input = not _fly
