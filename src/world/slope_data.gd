@@ -5,7 +5,29 @@ extends RefCounted
 ## faces[slope_type][face] = PackedVector3Array of 4 corners (x, y_up, z_depth) in [0,1].
 ## face order: 0=LID(+Y top) 1=NORTH(+Z) 2=SOUTH(-Z) 3=WEST(-X) 4=EAST(+X)
 
-static var faces: Array = _build()
+static var faces: Array = _reflect(_build())
+
+## OpenGTA's slope1_data.h local-Z runs opposite to how we place map-Y into world-Z,
+## so every N-S ramp came out mirrored (each cell tilted the wrong way -> a sawtooth
+## that's invisible in GTA1's top-down view but obvious in 3D). Reflect each slope's
+## local Z (z -> 1-z). Winding is reversed to keep normals outward, and faces 1/2
+## (the +Z/-Z sides) swap because the reflection swaps which side they describe.
+## E-W ramps and flat lids are unchanged by this (their Z edges are level).
+static func _reflect(src: Array) -> Array:
+	var order := [0, 2, 1, 3, 4]   # lid, then swap NORTH<->SOUTH, keep WEST/EAST
+	var out: Array = []
+	for tf: Array in src:
+		var nf: Array = []
+		for fi in 5:
+			var v: PackedVector3Array = tf[order[fi]]
+			nf.append(PackedVector3Array([
+				Vector3(v[0].x, v[0].y, 1.0 - v[0].z),
+				Vector3(v[3].x, v[3].y, 1.0 - v[3].z),
+				Vector3(v[2].x, v[2].y, 1.0 - v[2].z),
+				Vector3(v[1].x, v[1].y, 1.0 - v[1].z),
+			]))
+		out.append(nf)
+	return out
 
 static func _build() -> Array:
 	return [
