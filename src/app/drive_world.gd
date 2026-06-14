@@ -66,6 +66,7 @@ var _cam: Camera3D
 var _spawn_pos := Vector3.ZERO
 var _spawn_basis := Basis.IDENTITY
 var _hud: Label
+var _coords: Label
 var _fly := false
 var _yaw := 0.0
 var _pitch := 0.0
@@ -123,14 +124,39 @@ func _ready() -> void:
 
 func _add_hud() -> void:
 	var layer := CanvasLayer.new()
-	_hud = Label.new()
-	_hud.position = Vector2(14, 10)
-	_hud.add_theme_color_override("font_color", Color.WHITE)
-	_hud.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	_hud.add_theme_constant_override("outline_size", 6)
+	_hud = _make_label(Vector2(14, 10))
 	layer.add_child(_hud)
+	# Live map-cell readout, so a spot can be reported by its (X, Y) coordinates.
+	_coords = _make_label(Vector2(14, 36))
+	layer.add_child(_coords)
 	add_child(layer)
 	_update_hud()
+
+
+func _make_label(pos: Vector2) -> Label:
+	var lbl := Label.new()
+	lbl.position = pos
+	lbl.add_theme_color_override("font_color", Color.WHITE)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	lbl.add_theme_constant_override("outline_size", 6)
+	return lbl
+
+
+## Show the current map cell (matches the X/Y used everywhere in the data). Uses
+## the camera in fly mode, otherwise the car.
+func _update_coords() -> void:
+	if _coords == null:
+		return
+	var p: Vector3
+	if _fly and _cam != null:
+		p = _cam.global_position
+	elif car != null:
+		p = car.global_position
+	else:
+		return
+	var cx := clampi(int(floor(p.x)), 0, GTA1Map.DIM - 1)
+	var cy := clampi(int(floor(p.z)), 0, GTA1Map.DIM - 1)
+	_coords.text = "cell  X %d   Y %d   ·   height %.1f" % [cx, cy, p.y]
 
 
 func _update_hud() -> void:
@@ -172,6 +198,7 @@ func _place_camera(weight: float) -> void:
 # --- free-fly camera ---
 
 func _process(delta: float) -> void:
+	_update_coords()
 	if not _fly or _cam == null:
 		return
 	_cam.rotation = Vector3(_pitch, _yaw, 0.0)
