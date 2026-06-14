@@ -1,0 +1,10 @@
+PSX Style Cars by ggbot
+https://ggbot.itch.io/psx-style-cars
+License: Creative Commons Zero v1.0 Universal (CC0 1.0) — public domain.
+
+Used in GTA3D as the drivable vehicles. The car bodies (Car.obj .. Car8.obj) are
+single meshes; the shared Wheel.obj is mounted on each wheel at runtime. Only the
+.obj/.mtl/.png needed for rendering are vendored here; the full pack (.blend
+sources, colour variants, sound effects) is on the itch.io page above.
+
+Attribution is not required under CC0, but credited here with thanks.

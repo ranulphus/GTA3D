@@ -71,6 +71,6 @@ Engine code is licensed under **Apache License 2.0** (see [LICENSE](LICENSE)).
 - File-format knowledge derives from the community **[OpenGTA](https://github.com/madebr/OpenGTA)**
   project and DMA's *CityScape Data Structure* docs. The slope geometry table is
   ported from OpenGTA's `slope1_data.h` (zlib-licensed).
-- Vehicle models are from **[Kenney's Car Kit](https://kenney.nl/assets/car-kit)** (CC0).
+- Vehicle models are the **[PSX Style Cars by ggbot](https://ggbot.itch.io/psx-style-cars)** (CC0).
 File-format knowledge derives from the community OpenGTA project and DMA's
 *CityScape Data Structure* documentation.

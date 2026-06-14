@@ -29,12 +29,12 @@ Goal: **drive a car, street-level, around a real GTA1 city** rendered in 3D.
 - [ ] Chunk the city so it streams (256×256×6 is ~400k potential cubes)
 
 ### Phase 4 — Drive a car  ← milestone ✅ DONE
-- [x] Low-poly car model — Kenney Car Kit (CC0) GLB, wheels mounted to VehicleWheel3D
-- [x] `VehicleBody3D` with arcade-tuned handling (`src/vehicle/car.gd`)
+- [x] Low-poly cars — PSX Style Cars by ggbot (CC0); single-mesh bodies with a
+      shared wheel model mounted on VehicleWheel3D (`src/vehicle/car.gd`)
+- [x] `VehicleBody3D` with arcade-tuned handling; hood faces drive-forward, [C] cycles models
 - [x] Street-level chase camera (`src/app/drive_world.gd`)
 - [x] Spawn finder picks a clear street (`src/world/spawn_finder.gd`); car drives (validated)
 - [ ] Camera wall-occlusion handling; tune handling feel in-editor
-- [ ] Drive toward the model's visual front consistently (sign polish)
 
 ### Later
 - Pedestrians & traffic (low-poly + simple AI)

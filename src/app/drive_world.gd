@@ -11,15 +11,32 @@ const MOUSE_SENS := 0.004
 
 # Chase camera framing (tuned for the ~1-unit-wide car): how far behind and above
 # the car the camera sits, and where ahead/up it aims.
-const CAM_DIST := 4.2
-const CAM_HEIGHT := 1.9
-const CAM_LOOK_AHEAD := 4.0
-const CAM_LOOK_HEIGHT := 0.6
+const CAM_DIST := 3.3
+const CAM_HEIGHT := 1.5
+const CAM_LOOK_AHEAD := 3.2
+const CAM_LOOK_HEIGHT := 0.4
+
+# Cycleable PSX-style cars (ggbot, CC0). [C] switches between them at runtime. The
+# bodies ship without wheels, so a shared wheel model is mounted on each. PSX_YAW
+# turns a body so its hood faces -Z (drive-forward); tuned to the pack's models.
+const WHEEL_MODEL := "res://assets/vehicles/psx/wheel/Wheel.obj"
+const PSX_YAW := 180.0
+const CAR_MODELS := [
+	"res://assets/vehicles/psx/car1/Car.obj",
+	"res://assets/vehicles/psx/car2/Car2.obj",
+	"res://assets/vehicles/psx/car3/Car3.obj",
+	"res://assets/vehicles/psx/car4/Car4.obj",
+	"res://assets/vehicles/psx/car5/Car5.obj",
+	"res://assets/vehicles/psx/car6/Car6.obj",
+	"res://assets/vehicles/psx/car7/Car7.obj",
+	"res://assets/vehicles/psx/car8/Car8.obj",
+]
 
 @export var city := "NYC"
 @export_range(0.0, 1.0) var camera_smooth := 0.12
 
 var car: Car
+var _car_index := 0
 var _cam: Camera3D
 var _spawn_pos := Vector3.ZERO
 var _spawn_basis := Basis.IDENTITY
@@ -63,13 +80,11 @@ func _ready() -> void:
 	if floor_y == -INF:
 		floor_y = surface_y
 
-	car = Car.new()
-	add_child(car)
 	_spawn_pos = Vector3(sx, floor_y + 0.15, sz)
 	# Face the car down the road's long axis (Basis.looking_at points -Z, the
 	# vehicle's forward, along the given direction).
 	_spawn_basis = Basis.looking_at(Vector3(spawn_dir.x, 0, spawn_dir.y))
-	car.global_transform = Transform3D(_spawn_basis, _spawn_pos)
+	_spawn_car(_car_index, Transform3D(_spawn_basis, _spawn_pos))
 
 	_cam = Camera3D.new()
 	_cam.fov = 70.0
@@ -96,10 +111,11 @@ func _add_hud() -> void:
 func _update_hud() -> void:
 	if _hud == null:
 		return
+	var car_hint := "  ·  [C] next car" if CAR_MODELS.size() > 1 else ""
 	if _fly:
-		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  mouse look  ·  [F] drive"
+		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  mouse look  ·  [F] drive" + car_hint
 	else:
-		_hud.text = "DRIVE  ·  arrows / WASD  ·  [F] free-fly camera"
+		_hud.text = "DRIVE  ·  arrows / WASD  ·  [F] free-fly camera" + car_hint
 
 
 func _physics_process(_delta: float) -> void:
@@ -150,11 +166,41 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F:
-		_set_fly(not _fly)
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.physical_keycode == KEY_F:
+			_set_fly(not _fly)
+		elif event.physical_keycode == KEY_C:
+			_cycle_car()
 	elif _fly and event is InputEventMouseMotion:
 		_yaw -= event.relative.x * MOUSE_SENS
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENS, -1.4, 1.4)
+
+
+## (Re)build the car using model `idx`, placed at `xform`. Frees any existing car.
+func _spawn_car(idx: int, xform: Transform3D) -> void:
+	if car != null:
+		car.queue_free()
+	car = Car.new()
+	car.model_path = CAR_MODELS[idx]
+	car.model_yaw_deg = PSX_YAW
+	car.wheel_model_path = WHEEL_MODEL
+	car.use_input = not _fly
+	add_child(car)
+	car.global_transform = xform
+
+
+## Swap to the next car model, keeping the current spot — upright, nudged up a touch
+## so it drops onto the road rather than inheriting a tumbling pose.
+func _cycle_car() -> void:
+	if CAR_MODELS.size() <= 1 or car == null:
+		return
+	var pos := car.global_position
+	var fwd := -car.global_transform.basis.z
+	var flat := Vector3(fwd.x, 0.0, fwd.z)
+	flat = Vector3(0, 0, 1) if flat.length() < 0.05 else flat.normalized()
+	_car_index = (_car_index + 1) % CAR_MODELS.size()
+	_spawn_car(_car_index, Transform3D(Basis.looking_at(flat), pos + Vector3(0, 0.4, 0)))
+	_update_hud()
 
 
 func _set_fly(on: bool) -> void:

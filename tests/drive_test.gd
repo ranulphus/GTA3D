@@ -40,9 +40,9 @@ func _go() -> void:
 	world.add_child(cam)
 	cam.current = true
 
-	# The car (Kenney model) drives toward +Z, and a RigidBody ignores look_at,
-	# so we pick a road that runs along +Z with a long clear stretch ahead and
-	# leave the car at its default orientation.
+	# The car drives toward -Z (hood-first) and a RigidBody ignores look_at, so we
+	# leave it at its default orientation and just measure horizontal distance
+	# travelled (direction-agnostic). See drive_world_check.gd for the real scene.
 	var spawn := SpawnFinder.find_drive_spawn(map)
 	var surface_y := float(map.get_num_blocks(spawn.x, spawn.y))
 	print("spawn cell %s, surface_y=%.1f" % [spawn, surface_y])
