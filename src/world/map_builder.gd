@@ -158,8 +158,10 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 	var origin := Vector3(fx, fy, fz)
 	# face order: LID, NORTH(+Z), SOUTH(-Z), WEST(-X), EAST(+X). Only the lid is
 	# rotated; walls use the tile as-is (flips disabled — see _emit_cube).
+	# The SlopeData Z-reflection maps the lid's V to 1-z; flip V back (flip_tb) so
+	# the road texture runs the same way as flat lids instead of mirrored N-S.
 	var bytes := [b.lid, b.bottom, b.top, b.left, b.right]
-	var lid_uv: Array = _uv(b.rotation(), false, false)
+	var lid_uv: Array = _uv(b.rotation(), false, true)
 	for fi in 5:
 		var byte: int = bytes[fi]
 		if byte <= 0:
@@ -214,6 +216,13 @@ static func _emit_skirt(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		return
 	if sb.slope_type() != 0:
 		return
+	# Skip cells that carry a block (a girder walkway / bridge deck) ABOVE their
+	# solid surface: that's an elevated overpass, and skirting its edge walls off
+	# the road running underneath it.
+	for z in range(sy, map.get_num_blocks(x, y)):
+		var above := map.get_block(x, y, z)
+		if above != null and not above.is_empty():
+			return
 	var slot := style.num_side + sb.lid
 	var x0 := float(x)
 	var x1 := x0 + BLOCK
