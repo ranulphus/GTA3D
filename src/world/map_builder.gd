@@ -132,22 +132,22 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
 			Vector3(x0, yl, z1), Vector3(x1, yl, z1), Vector3(x1, yl, z0), Vector3(x0, yl, z0),
 			_uv(b.rotation(), false, false))
-	if b.left > 0:
-		var xl := x0 + FLAT_EPS
-		_face(verts, normals, uvs, indices, atlas, b.left, Vector3.LEFT,
-			Vector3(xl, y0, z1), Vector3(xl, y0, z0), Vector3(xl, y1, z0), Vector3(xl, y1, z1))
-	if b.right > 0:
-		var xr := x1 - FLAT_EPS
-		_face(verts, normals, uvs, indices, atlas, b.right, Vector3.RIGHT,
-			Vector3(xr, y0, z0), Vector3(xr, y0, z1), Vector3(xr, y1, z1), Vector3(xr, y1, z0))
-	if b.top > 0:
-		var zt := z0 + FLAT_EPS
-		_face(verts, normals, uvs, indices, atlas, b.top, Vector3.FORWARD,
-			Vector3(x1, y0, zt), Vector3(x0, y0, zt), Vector3(x0, y1, zt), Vector3(x1, y1, zt))
-	if b.bottom > 0:
-		var zb := z1 - FLAT_EPS
-		_face(verts, normals, uvs, indices, atlas, b.bottom, Vector3.BACK,
-			Vector3(x0, y0, zb), Vector3(x1, y0, zb), Vector3(x1, y1, zb), Vector3(x0, y1, zb))
+
+	# A flat block's opposite side bytes (left/right, top/bottom) are the front and
+	# back of ONE zero-thickness panel — a fence, railing or wall. Draw a single
+	# double-sided quad through the cell centre per axis. Emitting each byte at its
+	# own cell edge instead drew two parallel panels a whole cell apart and crossed
+	# perpendicular ones — the doubled/criss-crossed fences at the water's edge.
+	var zt: int = b.top if b.top > 0 else b.bottom   # panel facing ±Z (runs E-W)
+	if zt > 0:
+		var zc := fz + BLOCK * 0.5
+		_face(verts, normals, uvs, indices, atlas, zt, Vector3.FORWARD,
+			Vector3(x1, y0, zc), Vector3(x0, y0, zc), Vector3(x0, y1, zc), Vector3(x1, y1, zc))
+	var xl: int = b.left if b.left > 0 else b.right   # panel facing ±X (runs N-S)
+	if xl > 0:
+		var xc := fx + BLOCK * 0.5
+		_face(verts, normals, uvs, indices, atlas, xl, Vector3.LEFT,
+			Vector3(xc, y0, z1), Vector3(xc, y0, z0), Vector3(xc, y1, z0), Vector3(xc, y1, z1))
 
 
 ## Slope/ramp blocks: emit the exact per-face geometry for this slope type (1-44)
