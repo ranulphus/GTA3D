@@ -10,8 +10,10 @@ static var faces: Array = _reflect(_build())
 ## OpenGTA's slope1_data.h local-Z runs opposite to how we place map-Y into world-Z,
 ## so every N-S ramp came out mirrored (each cell tilted the wrong way -> a sawtooth
 ## that's invisible in GTA1's top-down view but obvious in 3D). Reflect each slope's
-## local Z (z -> 1-z). Winding is reversed to keep normals outward, and faces 1/2
-## (the +Z/-Z sides) swap because the reflection swaps which side they describe.
+## local Z (z -> 1-z), keeping the vertex order so the lid's texture mapping is
+## preserved (reversing the winding instead rotated the road texture 90 degrees).
+## Faces 1/2 (the +Z/-Z sides) swap because the reflection swaps which side they
+## describe. The reflection flips face normals; _emit_slope re-orients them outward.
 ## E-W ramps and flat lids are unchanged by this (their Z edges are level).
 static func _reflect(src: Array) -> Array:
 	var order := [0, 2, 1, 3, 4]   # lid, then swap NORTH<->SOUTH, keep WEST/EAST
@@ -22,9 +24,9 @@ static func _reflect(src: Array) -> Array:
 			var v: PackedVector3Array = tf[order[fi]]
 			nf.append(PackedVector3Array([
 				Vector3(v[0].x, v[0].y, 1.0 - v[0].z),
-				Vector3(v[3].x, v[3].y, 1.0 - v[3].z),
-				Vector3(v[2].x, v[2].y, 1.0 - v[2].z),
 				Vector3(v[1].x, v[1].y, 1.0 - v[1].z),
+				Vector3(v[2].x, v[2].y, 1.0 - v[2].z),
+				Vector3(v[3].x, v[3].y, 1.0 - v[3].z),
 			]))
 		out.append(nf)
 	return out

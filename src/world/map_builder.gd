@@ -133,21 +133,21 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 			Vector3(x0, yl, z1), Vector3(x1, yl, z1), Vector3(x1, yl, z0), Vector3(x0, yl, z0),
 			_uv(b.rotation(), false, false))
 
-	# A flat block's opposite side bytes (left/right, top/bottom) are the front and
-	# back of ONE zero-thickness panel — a fence, railing or wall. Draw a single
-	# double-sided quad through the cell centre per axis. Emitting each byte at its
-	# own cell edge instead drew two parallel panels a whole cell apart and crossed
-	# perpendicular ones — the doubled/criss-crossed fences at the water's edge.
-	var zt: int = b.top if b.top > 0 else b.bottom   # panel facing ±Z (runs E-W)
+	# A flat block's side bytes are a thin fence/railing/wall sitting ON a cell
+	# boundary, not spanning the cell. Per OpenGTA, only the top (-Z) and left (-X)
+	# bytes are drawn, each as a single double-sided panel at the cell's z=0 / x=0
+	# edge (the +Z/+X faces just back the same panel). Drawing both edges doubled
+	# the fence a cell apart; centring it left it hovering half a cell out over the
+	# water. The edge IS the boundary. (Fall back to bottom/right for the tile if a
+	# block only carries those, but keep the panel on the z0/x0 boundary.)
+	var zt: int = b.top if b.top > 0 else b.bottom   # fence on the -Z (north) edge
 	if zt > 0:
-		var zc := fz + BLOCK * 0.5
 		_face(verts, normals, uvs, indices, atlas, zt, Vector3.FORWARD,
-			Vector3(x1, y0, zc), Vector3(x0, y0, zc), Vector3(x0, y1, zc), Vector3(x1, y1, zc))
-	var xl: int = b.left if b.left > 0 else b.right   # panel facing ±X (runs N-S)
+			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0))
+	var xl: int = b.left if b.left > 0 else b.right   # fence on the -X (west) edge
 	if xl > 0:
-		var xc := fx + BLOCK * 0.5
 		_face(verts, normals, uvs, indices, atlas, xl, Vector3.LEFT,
-			Vector3(xc, y0, z1), Vector3(xc, y0, z0), Vector3(xc, y1, z0), Vector3(xc, y1, z1))
+			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1))
 
 
 ## Slope/ramp blocks: emit the exact per-face geometry for this slope type (1-44)
@@ -179,9 +179,16 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		var nrm := (bb - a).cross(c - a)
 		if nrm.length() < 0.0001:
 			continue  # degenerate (collapsed) face
+		nrm = nrm.normalized()
+		# The Z-reflection in SlopeData flips the winding (and thus the raw normal),
+		# so orient each normal to face away from the cell centre — independent of
+		# winding, and correct for lids (up) and walls (outward) alike.
+		var face_centre := (a + bb + c + d) * 0.25
+		if nrm.dot(face_centre - (origin + Vector3(0.5, 0.5, 0.5))) < 0.0:
+			nrm = -nrm
 		var slot := (style.num_side + byte) if fi == 0 else byte
 		var luv: Array = lid_uv if fi == 0 else BASE_UV
-		_face(verts, normals, uvs, indices, atlas, slot, nrm.normalized(), a, bb, c, d, luv)
+		_face(verts, normals, uvs, indices, atlas, slot, nrm, a, bb, c, d, luv)
 
 
 ## Vertical "skirt" walls that close the 1-unit gap where one flat ground cell
