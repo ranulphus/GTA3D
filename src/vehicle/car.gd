@@ -53,7 +53,14 @@ const YAW_RATE_PER_PT := 0.4
 const SLIP_ALIGN := 3.0         # self-aligning pull of the heading back toward the
                                 # velocity, so a slide caps into a drift, not a spin
 const ANGULAR_DAMP := 1.5      # gentle residual damping (roll/pitch settling)
-const ROLL_DAMP := 0.5         # extra bleed of roll rate each frame (anti-tip)
+# Self-righting: when the car loses its footing (a wheel-lifting hard turn, a
+# crash or a jump) we actively rotate it back upright so it always settles onto
+# its four wheels instead of getting stuck on its side / nose / tail. It only
+# runs while fewer than 3 wheels touch the ground, so driving flat or up a ramp
+# (4 wheels down) is left entirely to the suspension and never fought.
+const RIGHTING_GAIN := 6.0     # target righting spin = sin(tilt) * this (rad/s)
+const RIGHTING_RATE := 12.0    # how fast that righting spin builds (rad/s^2)
+const ROLL_SETTLE := 3.0       # mild roll/pitch damping while on the wheels
 
 ## Performance scores out of 10, set per car model before the node enters the tree.
 @export_range(0, 10) var speed_score := 5.0
@@ -302,6 +309,16 @@ func speed_ratio() -> float:
 	return clampf(linear_velocity.length() / maxf(_top_speed, 1.0), 0.0, 1.0)
 
 
+## Number of wheels currently touching the ground. Fewer than 3 means the car has
+## tipped or jumped, which triggers the self-righting torque in _physics_process.
+func _wheels_on_ground() -> int:
+	var n := 0
+	for c in get_children():
+		if c is VehicleWheel3D and (c as VehicleWheel3D).is_in_contact():
+			n += 1
+	return n
+
+
 func _physics_process(delta: float) -> void:
 	var throttle := control_throttle
 	var steer := control_steer
@@ -350,8 +367,20 @@ func _physics_process(delta: float) -> void:
 		intended_yaw += slip * SLIP_ALIGN
 	var av := angular_velocity
 	av.y = move_toward(av.y, intended_yaw, _yaw_rate * delta)
-	# Anti-tip: bleed off roll (spin about the car's own forward axis) so a hard
-	# turn can't lever it onto two wheels; the low centre of mass rights the rest.
-	var roll_axis := global_transform.basis.z
-	av -= roll_axis * av.dot(roll_axis) * ROLL_DAMP
+	# Self-righting / anti-tip. While the car sits on its wheels (flat road or a
+	# ramp) we leave its tilt to the suspension and only bleed wobble. The moment
+	# it loses footing — a wheel-lifting hard turn, a crash, a jump — we rotate its
+	# up vector back to vertical so it lands on all four wheels instead of getting
+	# stuck on its side / nose / tail. up x world-up is a horizontal axis (Y=0), so
+	# this corrects roll AND pitch without ever fighting the kinematic yaw above.
+	if _wheels_on_ground() >= 3:
+		av.x = move_toward(av.x, 0.0, ROLL_SETTLE * delta)
+		av.z = move_toward(av.z, 0.0, ROLL_SETTLE * delta)
+	else:
+		var up := global_transform.basis.y
+		var tilt_axis := up.cross(Vector3.UP)   # horizontal axis, |.| = sin(tilt), Y = 0
+		if tilt_axis.length() < 1e-3 and up.y < 0.0:
+			tilt_axis = global_transform.basis.z   # fully inverted: pick a definite axis
+		av.x = move_toward(av.x, tilt_axis.x * RIGHTING_GAIN, RIGHTING_RATE * delta)
+		av.z = move_toward(av.z, tilt_axis.z * RIGHTING_GAIN, RIGHTING_RATE * delta)
 	angular_velocity = av
