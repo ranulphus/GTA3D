@@ -174,11 +174,11 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	if b.lid > 0:
 		var slot := style.num_side + b.lid
 		if below != null and below.slope_type() != 0:
-			# The decal marks a sloped road one level down (z-1); lay it on the slope
-			# so the markings follow the ramp instead of floating flat at its top edge
-			# (which read as the road having "fallen" a unit below the marking).
+			# The flat sits over a ramp (the slope one level down). Follow the slope's
+			# shape but raised one unit (its own cell), so a girder/deck stays one above
+			# the ramp road just as it does on the flat sections, not painted onto it.
 			var sf: PackedVector3Array = SlopeData.faces[below.slope_type()][0]
-			var o := Vector3(fx, fy - BLOCK + FLAT_EPS, fz)
+			var o := Vector3(fx, fy + FLAT_EPS, fz)
 			var nrm := (sf[1] - sf[0]).cross(sf[2] - sf[0]).normalized()
 			if nrm.y < 0.0:
 				nrm = -nrm
