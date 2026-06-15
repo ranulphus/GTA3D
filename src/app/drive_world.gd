@@ -10,11 +10,17 @@ const FLY_BOOST := 3.5
 const MOUSE_SENS := 0.004
 
 # Chase camera framing (tuned for the ~1-unit-wide car): how far behind and above
-# the car the camera sits, and where ahead/up it aims.
-const CAM_DIST := 3.3
-const CAM_HEIGHT := 1.5
-const CAM_LOOK_AHEAD := 3.2
+# the car the camera sits, and where ahead/up it aims. The camera zooms with
+# speed: pulled in tight when stationary, easing out to the FAR framing at the
+# car's top speed (so fast driving shows more of the road ahead).
+const CAM_DIST_NEAR := 1.8
+const CAM_DIST_FAR := 3.3
+const CAM_HEIGHT_NEAR := 1.0
+const CAM_HEIGHT_FAR := 1.5
+const CAM_LOOK_AHEAD_NEAR := 1.4
+const CAM_LOOK_AHEAD_FAR := 3.2
 const CAM_LOOK_HEIGHT := 0.4
+const CAM_ZOOM_SMOOTH := 0.06   # how fast the zoom follows speed (kept slow to avoid pumping)
 
 # Cycleable PSX-style cars (ggbot, CC0). [C] switches between them at runtime. The
 # bodies model their own wheels, so the physics wheels stay invisible. PSX_YAW
@@ -71,6 +77,7 @@ const CAR_MODELS := [
 var car: Car
 var _car_index := 0
 var _cam: Camera3D
+var _zoom := 0.0   # smoothed 0..1 speed-based camera zoom (0 = near, 1 = far)
 var _spawn_pos := Vector3.ZERO
 var _spawn_basis := Basis.IDENTITY
 var _hud: Label
@@ -200,9 +207,29 @@ func _place_camera(weight: float) -> void:
 	var flat := Vector3(fwd.x, 0.0, fwd.z)
 	flat = Vector3(0, 0, 1) if flat.length() < 0.05 else flat.normalized()
 
-	var target := car.global_position - flat * CAM_DIST + Vector3(0, CAM_HEIGHT, 0)
-	_cam.global_position = _cam.global_position.lerp(target, weight) if weight < 1.0 else target
-	_cam.look_at(car.global_position + flat * CAM_LOOK_AHEAD + Vector3(0, CAM_LOOK_HEIGHT, 0), Vector3.UP)
+	# Zoom with speed: ease the zoom factor toward the car's speed ratio (0 near,
+	# 1 far) so it doesn't pump on every throttle blip.
+	_zoom = lerpf(_zoom, car.speed_ratio(), CAM_ZOOM_SMOOTH)
+	var dist := lerpf(CAM_DIST_NEAR, CAM_DIST_FAR, _zoom)
+	var height := lerpf(CAM_HEIGHT_NEAR, CAM_HEIGHT_FAR, _zoom)
+	var look_ahead := lerpf(CAM_LOOK_AHEAD_NEAR, CAM_LOOK_AHEAD_FAR, _zoom)
+
+	# Pull the camera in if a building is between it and the car, so it never sees
+	# through / sits inside walls. Ray from the car (at camera height) back to the
+	# wanted spot; if it hits, place the camera just short of that wall.
+	var pivot := car.global_position + Vector3(0, height, 0)
+	var want := pivot - flat * dist
+	var space := get_world_3d().direct_space_state
+	if space != null:
+		var q := PhysicsRayQueryParameters3D.create(pivot, want)
+		q.exclude = [car.get_rid()]
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty():
+			var d: float = clampf(pivot.distance_to(hit.position) - 0.25, 0.5, dist)
+			want = pivot - flat * d
+
+	_cam.global_position = _cam.global_position.lerp(want, weight) if weight < 1.0 else want
+	_cam.look_at(car.global_position + flat * look_ahead + Vector3(0, CAM_LOOK_HEIGHT, 0), Vector3.UP)
 
 
 # --- free-fly camera ---

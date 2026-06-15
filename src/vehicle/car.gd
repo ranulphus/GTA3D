@@ -57,8 +57,8 @@ const ANGULAR_DAMP := 1.5      # gentle residual damping (roll/pitch settling)
 @export_range(0, 10) var handling_score := 5.0
 
 ## Target body width (the narrow horizontal side) in world units. GTA1 streets are
-## 1 unit per map cell; a car a bit narrower than a cell looks right.
-const TARGET_WIDTH := 0.7
+## 1 unit per map cell; a car about half a cell wide leaves room for two lanes.
+const TARGET_WIDTH := 0.5
 
 const WHEEL_NAMES := ["wheel-front-left", "wheel-front-right", "wheel-back-left", "wheel-back-right"]
 
@@ -289,6 +289,12 @@ func _wheel_radius(wnode: Node3D) -> float:
 	if wnode is MeshInstance3D and wnode.mesh != null:
 		return maxf(wnode.mesh.get_aabb().size.y * 0.5, 0.3)
 	return 0.35
+
+
+## Current speed as a fraction (0..1) of this car's top speed — used by the chase
+## camera to zoom out with speed.
+func speed_ratio() -> float:
+	return clampf(linear_velocity.length() / maxf(_top_speed, 1.0), 0.0, 1.0)
 
 
 func _physics_process(delta: float) -> void:
