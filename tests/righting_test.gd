@@ -44,6 +44,8 @@ func _go() -> void:
 
 	# tilt cases: (label, euler-degrees applied as the starting orientation)
 	var cases := [
+		["moderate lean (roll 35)",  Vector3(0, 0, 35)],   # the stuck-lean from the screenshot
+		["moderate lean (roll 50)",  Vector3(0, 0, 50)],
 		["side wheelie (roll 80)",  Vector3(0, 0, 80)],
 		["roll onto roof  (150)",   Vector3(0, 0, 150)],
 		["back wheelie (pitch 70)",  Vector3(70, 0, 0)],
