@@ -180,12 +180,17 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 			var sf: PackedVector3Array = SlopeData.faces[below.slope_type()][0]
 			var o := Vector3(fx, fy + FLAT_EPS, fz)
 			var nrm := (sf[1] - sf[0]).cross(sf[2] - sf[0]).normalized()
-			if nrm.y < 0.0:
-				nrm = -nrm
 			var rot := b.rotation()
-			_face(verts, normals, uvs, indices, atlas, slot, nrm,
-				o + sf[0], o + sf[1], o + sf[2], o + sf[3],
-				_uv(rot, rot % 2 == 1, rot % 2 == 0))
+			var luv := _uv(rot, rot % 2 == 1, rot % 2 == 0)
+			if nrm.y < 0.0:
+				# Reverse winding (and UVs) together with the normal so the front
+				# face matches it — same GPU-consistency fix as in _emit_slope.
+				nrm = -nrm
+				_face(verts, normals, uvs, indices, atlas, slot, nrm,
+					o + sf[0], o + sf[3], o + sf[2], o + sf[1], [luv[0], luv[3], luv[2], luv[1]])
+			else:
+				_face(verts, normals, uvs, indices, atlas, slot, nrm,
+					o + sf[0], o + sf[1], o + sf[2], o + sf[3], luv)
 		else:
 			# Draw the lid at the cell TOP (z+1), like a normal block's lid: GTA1
 			# stores raised structures (El tracks, bridge decks, girder gratings) as
@@ -256,11 +261,18 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		# so orient each normal to face away from the cell centre — independent of
 		# winding, and correct for lids (up) and walls (outward) alike.
 		var face_centre := (a + bb + c + d) * 0.25
-		if nrm.dot(face_centre - (origin + Vector3(0.5, 0.5, 0.5))) < 0.0:
-			nrm = -nrm
 		var slot := (style.num_side + byte) if fi == 0 else byte
 		var luv: Array = lid_uv if fi == 0 else BASE_UV
-		_face(verts, normals, uvs, indices, atlas, slot, nrm, a, bb, c, d, luv)
+		if nrm.dot(face_centre - (origin + Vector3(0.5, 0.5, 0.5))) < 0.0:
+			# Outward normal disagrees with the winding. Flipping the normal alone
+			# leaves the geometric front face wrong, which CULL_DISABLED two-sided
+			# lighting resolves differently per GPU (slopes bright on some, dark on
+			# others). Reverse the winding (and per-vertex UVs) to match the normal.
+			nrm = -nrm
+			_face(verts, normals, uvs, indices, atlas, slot, nrm,
+				a, d, c, bb, [luv[0], luv[3], luv[2], luv[1]])
+		else:
+			_face(verts, normals, uvs, indices, atlas, slot, nrm, a, bb, c, d, luv)
 
 
 ## Vertical "skirt" walls that close the 1-unit gap where one flat ground cell
