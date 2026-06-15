@@ -129,6 +129,13 @@ static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 ## the panels visible from both sides. A small epsilon keeps them off neighbouring
 ## planes to avoid z-fighting.
 const FLAT_EPS := 0.03
+## Lid tiles for the elevated railway (the "El"): straights, curves, junctions and
+## ends. These flat blocks sit one level above the road and must render raised (so
+## the track joins the platforms and cars pass under), unlike road markings, which
+## are also lid-only flats but lie flat on the surface. Derived from the NYC tile
+## set around the main rail tile (136); tune if a structure renders at the wrong
+## height.
+const EL_TRACK_TILES := {129: true, 130: true, 132: true, 136: true, 137: true, 138: true, 139: true, 140: true}
 static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
 		b: GTA1Block, fx: float, fy: float, fz: float, below: GTA1Block = null) -> void:
 	var x0 := fx
@@ -154,7 +161,14 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 				o + sf[0], o + sf[1], o + sf[2], o + sf[3],
 				_uv(rot, rot % 2 == 1, rot % 2 == 0))
 		else:
-			var yl := y0 + FLAT_EPS  # lay the decal on the surface below, not floating on top
+			# Lid height: most flat lids are decals that lie ON the surface below
+			# (road/junction markings) -> draw at the block base. But GTA1 stores the
+			# elevated train (El) tracks as flat blocks one level above the road, and
+			# their lid is the RAISED rail surface — it belongs at the cell TOP (z+1),
+			# level with the adjacent platform cube, so the car drives underneath. The
+			# two are structurally identical (a lid-only flat over a surface); only the
+			# tile distinguishes them, so we key off the El-track tile set.
+			var yl := (y1 - FLAT_EPS) if EL_TRACK_TILES.has(b.lid) else (y0 + FLAT_EPS)
 			_face(verts, normals, uvs, indices, atlas, slot, Vector3.UP,
 				Vector3(x0, yl, z1), Vector3(x1, yl, z1), Vector3(x1, yl, z0), Vector3(x0, yl, z0),
 				_uv(b.rotation(), false, false))
