@@ -45,6 +45,9 @@ static func build(map: GTA1Map, style: GTA1Style, region := Rect2i(0, 0, GTA1Map
 			# Close height steps: GTA1 ground blocks have no side textures, so a
 			# step to a lower neighbour leaves a gap. Fill it with the surface tile.
 			_emit_skirt(verts, normals, uvs, indices, atlas, style, map, x, y)
+			# Bedrock floor: close street-level holes (no block at z=0 or z=1) so the
+			# car can't drive into a gap and fall through the world below the road.
+			_emit_bedrock(verts, normals, uvs, indices, atlas, style, map, x, y)
 
 	var mesh := ArrayMesh.new()
 	if verts.is_empty():
@@ -71,6 +74,34 @@ static func build(map: GTA1Map, style: GTA1Style, region := Rect2i(0, 0, GTA1Map
 	mi.mesh = mesh
 	mi.name = "City"
 	return mi
+
+
+## Street level (stack z of the common road) and the filler tile for the bedrock.
+const STREET_Z := 1
+const BEDROCK_LID := 1
+
+
+## Bedrock floor: some GTA1 columns have nothing at street level — the lowest block
+## sits at z>=2 (often inside building footprints), leaving a hole the car can drive
+## into and fall through. Lay a single floor quad at street level (the z=1 surface,
+## Y=2) so the ground reads as continuous and gives the car something to rest on.
+## Skipped where a real block already occupies street level (z=1), or sits BELOW it
+## (z=0 — a river/canal/low ground we must not cover): only true voids are filled.
+static func _emit_bedrock(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
+		map: GTA1Map, x: int, y: int) -> void:
+	var b0 := map.get_block(x, y, 0)
+	if b0 != null and not b0.is_empty():
+		return
+	var b1 := map.get_block(x, y, STREET_Z)
+	if b1 != null and not b1.is_empty():
+		return
+	var x0 := float(x)
+	var x1 := x0 + BLOCK
+	var z0 := float(y)
+	var z1 := z0 + BLOCK
+	var yl := float(STREET_Z) + BLOCK   # the z=1 lid surface, world Y = 2
+	_face(verts, normals, uvs, indices, atlas, style.num_side + BEDROCK_LID, Vector3.UP,
+		Vector3(x0, yl, z1), Vector3(x1, yl, z1), Vector3(x1, yl, z0), Vector3(x0, yl, z0))
 
 
 ## Solid collision for the city: a ConcavePolygonShape3D taken straight from the
