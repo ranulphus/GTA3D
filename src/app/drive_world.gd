@@ -101,6 +101,10 @@ func _ready() -> void:
 	# Collision is the rendered mesh itself, so the car collides with exactly what it
 	# sees (drives under untextured overpass decks, blocks on textured walls).
 	add_child(MapBuilder.build_collision(city_mesh.mesh))
+	# Animated water over the rivers/harbour (a thin skin on the riverbed tile; the
+	# car's collision is unchanged). Detected by the water lid tile, so subways — which
+	# also dip to z=0 — are left dry.
+	add_child(WaterBuilder.build(map))
 
 	var center := GTA1Map.DIM / 2.0
 	var we := WorldEnvironment.new()
