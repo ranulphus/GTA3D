@@ -31,7 +31,7 @@ func _go() -> void:
 
 	var city := MapBuilder.build(map, style)
 	world.add_child(city)
-	world.add_child(MapBuilder.build_collision(map))   # purpose-built trimesh collision
+	world.add_child(MapBuilder.build_collision(city.mesh))   # collide with the rendered mesh
 
 	_setup_env(world)
 	var cam := Camera3D.new()

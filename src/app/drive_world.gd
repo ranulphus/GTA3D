@@ -83,7 +83,9 @@ func _ready() -> void:
 
 	var city_mesh := MapBuilder.build(map, style)
 	add_child(city_mesh)
-	add_child(MapBuilder.build_collision(map))
+	# Collision is the rendered mesh itself, so the car collides with exactly what it
+	# sees (drives under untextured overpass decks, blocks on textured walls).
+	add_child(MapBuilder.build_collision(city_mesh.mesh))
 
 	var center := GTA1Map.DIM / 2.0
 	var we := WorldEnvironment.new()

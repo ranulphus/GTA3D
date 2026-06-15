@@ -51,3 +51,17 @@ static func add_ground(parent: Node, center_xz: float, y: float) -> void:
 	ground.material_override = mat
 	ground.position = Vector3(center_xz, y, center_xz)
 	parent.add_child(ground)
+
+	# Collision floor at sea level. The city collision is the rendered mesh, which
+	# (like the original game) has no wall along open water edges — so a car driven
+	# off a quay would otherwise drop into the void. An infinite WorldBoundaryShape3D
+	# at sea level catches it on the water, and acts as a global "never fall through"
+	# net. It sits well below every road (Y>=2), so it never interferes with driving.
+	var sea_body := StaticBody3D.new()
+	sea_body.name = "SeaCollision"
+	var wb := WorldBoundaryShape3D.new()
+	wb.plane = Plane(Vector3.UP, y)
+	var cs := CollisionShape3D.new()
+	cs.shape = wb
+	sea_body.add_child(cs)
+	parent.add_child(sea_body)

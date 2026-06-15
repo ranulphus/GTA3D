@@ -6,7 +6,9 @@ extends SceneTree
 ##   godot --headless --path . --script res://tests/trimesh_test.gd -- [x y ...]
 func _init() -> void:
 	var map := GTA1Map.load_file("res://data/NYC.CMP")
-	var body := MapBuilder.build_collision(map)
+	var style := GTA1Style.load_file("res://data/STYLE%03d.G24" % map.style_number)
+	var mesh: ArrayMesh = MapBuilder.build(map, style).mesh
+	var body := MapBuilder.build_collision(mesh)
 	var shape: ConcavePolygonShape3D = body.get_child(0).shape
 	var f := shape.get_faces()
 	print("collision triangles: ", f.size() / 3)

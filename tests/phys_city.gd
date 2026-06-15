@@ -12,8 +12,9 @@ func _init() -> void:
 
 func _go() -> void:
 	var map := GTA1Map.load_file("res://data/NYC.CMP")
+	var style := GTA1Style.load_file("res://data/STYLE%03d.G24" % map.style_number)
 	var root := get_root()
-	root.add_child(MapBuilder.build_collision(map))
+	root.add_child(MapBuilder.build_collision(MapBuilder.build(map, style).mesh))
 	for _i in 10:
 		await physics_frame
 	var space := root.world_3d.direct_space_state
@@ -48,6 +49,25 @@ func _go() -> void:
 			contacts += 1
 	print("C car y=%.2f  min_y=%.2f  wheels=%d/4  moved=%.1f  (no tunnel if min_y>0)"
 		% [car.global_position.y, min_y, contacts, car.global_position.distance_to(Vector3(130.5, 2.5, 132.5))])
+
+	# D) DRIVE-UNDER: the girder bridge over the X=90-95 road spans Y=68-69 (deck cube
+	#    at Y=2-3, no side textures). Spawn just south at (91,71), face north (-Z), and
+	#    floor it: the car must pass the bridge line (z < 69), not jam against a wall
+	#    at z~70. Identity basis already faces -Z (the car's drive-forward).
+	car.queue_free()
+	await physics_frame
+	var u := Car.new()
+	u.use_input = false
+	root.add_child(u)
+	u.global_transform = Transform3D(Basis.IDENTITY, Vector3(91.5, 2.5, 71.3))
+	await physics_frame
+	u.control_throttle = 1.0
+	var min_z := 99.0
+	for _i in 200:
+		await physics_frame
+		min_z = minf(min_z, u.global_position.z)
+	print("D drive-under: car z=%.2f  min_z=%.2f  y=%.2f  (passed under bridge if min_z < 68.5; jammed if ~70)"
+		% [u.global_position.z, min_z, u.global_position.y])
 	quit(0)
 
 
