@@ -102,7 +102,8 @@ static func build_heightfield_collision(map: GTA1Map) -> StaticBody3D:
 static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
 		map: GTA1Map, b: GTA1Block, x: int, y: int, z: int, fx: float, fy: float, fz: float) -> void:
 	if b.is_flat():
-		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz)
+		var below := map.get_block(x, y, z - 1) if z > 0 else null
+		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, below)
 	elif b.slope_type() == 0:
 		_emit_cube(verts, normals, uvs, indices, atlas, style, map, b, x, y, z, fx, fy, fz)
 	else:
@@ -119,7 +120,7 @@ static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 ## planes to avoid z-fighting.
 const FLAT_EPS := 0.03
 static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
-		b: GTA1Block, fx: float, fy: float, fz: float) -> void:
+		b: GTA1Block, fx: float, fy: float, fz: float, below: GTA1Block = null) -> void:
 	var x0 := fx
 	var x1 := fx + BLOCK
 	var y0 := fy
@@ -128,10 +129,25 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	var z1 := fz + BLOCK
 
 	if b.lid > 0:
-		var yl := y0 + FLAT_EPS  # lay the decal on the surface below, not floating on top
-		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
-			Vector3(x0, yl, z1), Vector3(x1, yl, z1), Vector3(x1, yl, z0), Vector3(x0, yl, z0),
-			_uv(b.rotation(), false, false))
+		var slot := style.num_side + b.lid
+		if below != null and below.slope_type() != 0:
+			# The decal marks a sloped road one level down (z-1); lay it on the slope
+			# so the markings follow the ramp instead of floating flat at its top edge
+			# (which read as the road having "fallen" a unit below the marking).
+			var sf: PackedVector3Array = SlopeData.faces[below.slope_type()][0]
+			var o := Vector3(fx, fy - BLOCK + FLAT_EPS, fz)
+			var nrm := (sf[1] - sf[0]).cross(sf[2] - sf[0]).normalized()
+			if nrm.y < 0.0:
+				nrm = -nrm
+			var rot := b.rotation()
+			_face(verts, normals, uvs, indices, atlas, slot, nrm,
+				o + sf[0], o + sf[1], o + sf[2], o + sf[3],
+				_uv(rot, rot % 2 == 1, rot % 2 == 0))
+		else:
+			var yl := y0 + FLAT_EPS  # lay the decal on the surface below, not floating on top
+			_face(verts, normals, uvs, indices, atlas, slot, Vector3.UP,
+				Vector3(x0, yl, z1), Vector3(x1, yl, z1), Vector3(x1, yl, z0), Vector3(x0, yl, z0),
+				_uv(b.rotation(), false, false))
 
 	# A flat block's side bytes are a thin fence/railing/wall sitting ON a cell
 	# boundary, not spanning the cell. Per OpenGTA, only the top (-Z) and left (-X)
@@ -158,10 +174,13 @@ static func _emit_slope(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 	var origin := Vector3(fx, fy, fz)
 	# face order: LID, NORTH(+Z), SOUTH(-Z), WEST(-X), EAST(+X). Only the lid is
 	# rotated; walls use the tile as-is (flips disabled — see _emit_cube).
-	# The SlopeData Z-reflection maps the lid's V to 1-z; flip V back (flip_tb) so
-	# the road texture runs the same way as flat lids instead of mirrored N-S.
+	# The SlopeData Z-reflection mirrors the lid in world-Z. In TILE space that's a
+	# V-flip when the tile is unrotated/180 (rot 0,2) but a U-flip when it's turned
+	# 90/270 (rot 1,3), because the rotation swaps which tile axis world-Z follows.
+	# Apply the matching flip so ramp road markings line up with the flat road.
 	var bytes := [b.lid, b.bottom, b.top, b.left, b.right]
-	var lid_uv: Array = _uv(b.rotation(), false, true)
+	var rot := b.rotation()
+	var lid_uv: Array = _uv(rot, rot % 2 == 1, rot % 2 == 0)
 	for fi in 5:
 		var byte: int = bytes[fi]
 		if byte <= 0:
