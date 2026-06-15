@@ -73,30 +73,111 @@ static func build(map: GTA1Map, style: GTA1Style, region := Rect2i(0, 0, GTA1Map
 	return mi
 
 
-## Solid collision for the city: a HeightMapShape3D sampling the drivable surface
-## height per cell. Unlike a trimesh of the thin lids, this is solid below the
-## surface, so the car can't tunnel/bounce through it. Buildings become tall
-## heightfield columns (steep walls the car bumps into).
-static func build_heightfield_collision(map: GTA1Map) -> StaticBody3D:
-	var hf := HeightMapShape3D.new()
-	hf.map_width = GTA1Map.DIM
-	hf.map_depth = GTA1Map.DIM
-	var data := PackedFloat32Array()
-	data.resize(GTA1Map.DIM * GTA1Map.DIM)
-	for j in GTA1Map.DIM:
-		for i in GTA1Map.DIM:
-			data[j * GTA1Map.DIM + i] = float(map.get_surface_y(i, j))
-	hf.map_data = data
+## Solid collision for the city as a ConcavePolygonShape3D (trimesh).
+##
+## A heightfield stores ONE height per cell, so at an overpass it can only pick the
+## deck OR the road below it — the car was forced over every bridge and could never
+## drive under. A trimesh has no such limit: a cell can carry both the under-road
+## surface and the deck above it, so the car drives under bridges / building
+## overhangs as well as over them.
+##
+## We emit GEOMETRY, not the visual faces: per solid cube, its top (lid) as a
+## drivable floor unless a full cube directly above buries it, plus the side walls
+## that face open space so the car bumps buildings, kerbs and the sea edge. Road
+## cubes carry no side TEXTURES but are still solid, so walls are decided by
+## geometry (is the neighbour a full cube/ramp?) not by the texture bytes. Ramps
+## contribute their sloped lid so the car can climb between levels. Flat decals
+## (paint, fences) and downward/interior faces are skipped.
+static func build_collision(map: GTA1Map) -> StaticBody3D:
+	var dim := GTA1Map.DIM
+	var h := GTA1Map.COLUMN_HEIGHT
+	# Occupancy grid: 0 = empty/flat (no side fill), 1 = ramp, 2 = full cube. Built
+	# once so the emit pass culls lids/walls with O(1) array reads instead of
+	# re-fetching neighbour blocks (halves the build time on a full city).
+	var occ := PackedByteArray()
+	occ.resize(dim * dim * h)
+	for x in dim:
+		for y in dim:
+			var ci := (x * dim + y) * h
+			var n := map.get_num_blocks(x, y)
+			for z in n:
+				var b := map.get_block(x, y, z)
+				if b == null or b.is_empty() or b.is_flat():
+					continue
+				occ[ci + z] = 1 if b.slope_type() != 0 else 2
+
+	var faces := PackedVector3Array()
+	for x in dim:
+		var xrow := x * dim
+		for y in dim:
+			var ci := (xrow + y) * h
+			var n := map.get_num_blocks(x, y)
+			for z in n:
+				var v := occ[ci + z]
+				if v == 0:
+					continue
+				if v == 1:
+					_collide_slope(faces, map.get_block(x, y, z), x, y, z)
+					continue
+				var x0 := float(x)
+				var x1 := x0 + BLOCK
+				var y0 := float(z)
+				var y1 := y0 + BLOCK
+				var z0 := float(y)
+				var z1 := z0 + BLOCK
+				# Lid (drivable top) unless a full cube directly above buries it.
+				if z + 1 >= h or occ[ci + z + 1] != 2:
+					_cquad(faces, Vector3(x0, y1, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0), Vector3(x0, y1, z0))
+				# Side wall wherever the neighbour at this level is open (occ 0): a
+				# cube or ramp neighbour (occ 1/2) already meets the edge, so skip it.
+				if x == 0 or occ[((x - 1) * dim + y) * h + z] == 0:
+					_cquad(faces, Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1))
+				if x == dim - 1 or occ[((x + 1) * dim + y) * h + z] == 0:
+					_cquad(faces, Vector3(x1, y0, z0), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0))
+				if y == 0 or occ[(xrow + y - 1) * h + z] == 0:
+					_cquad(faces, Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0))
+				if y == dim - 1 or occ[(xrow + y + 1) * h + z] == 0:
+					_cquad(faces, Vector3(x0, y0, z1), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x0, y1, z1))
 
 	var body := StaticBody3D.new()
 	body.name = "CityCollision"
+	if faces.is_empty():
+		push_warning("MapBuilder: no collision geometry produced")
+		return body
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	# Collide from BOTH sides. A ConcavePolygonShape3D is one-sided by default, so a
+	# floor triangle wound normal-down would let a car fall straight through its back
+	# face (the old "trimesh tunnels" reputation). Our lids/ramps mix windings (the
+	# slope reflection flips some), so two-sided is the only robust choice for a thin
+	# city shell — and it makes every wall block from inside and out.
+	shape.backface_collision = true
 	var cs := CollisionShape3D.new()
-	cs.shape = hf
+	cs.shape = shape
 	body.add_child(cs)
-	# Heightfield grid point (i,j) sits at world (i+0.5, h, j+0.5) — the cell
-	# centre — when the body is centred at (DIM/2, 0, DIM/2).
-	body.position = Vector3(GTA1Map.DIM / 2.0, 0.0, GTA1Map.DIM / 2.0)
 	return body
+
+
+## Collision for a ramp: just its sloped lid, the surface the car drives on to
+## climb between levels. Its sides are left open (the lid deflects the car); a wall
+## there risks blocking the ramp/deck join.
+static func _collide_slope(faces: PackedVector3Array, b: GTA1Block, x: int, y: int, z: int) -> void:
+	var sf: PackedVector3Array = SlopeData.faces[b.slope_type()][0]
+	var o := Vector3(float(x), float(z), float(y))
+	_cquad(faces, o + sf[0], o + sf[1], o + sf[2], o + sf[3])
+
+
+static func _ctri(faces: PackedVector3Array, a: Vector3, b: Vector3, c: Vector3) -> void:
+	faces.push_back(a)
+	faces.push_back(b)
+	faces.push_back(c)
+
+
+## Two triangles for the collision quad a->b->c->d. Winding doesn't matter here
+## because the shape uses backface_collision (it collides from both sides).
+static func _cquad(faces: PackedVector3Array, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	_ctri(faces, a, b, c)
+	_ctri(faces, a, c, d)
 
 
 static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,

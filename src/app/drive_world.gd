@@ -83,7 +83,7 @@ func _ready() -> void:
 
 	var city_mesh := MapBuilder.build(map, style)
 	add_child(city_mesh)
-	add_child(MapBuilder.build_heightfield_collision(map))
+	add_child(MapBuilder.build_collision(map))
 
 	var center := GTA1Map.DIM / 2.0
 	var we := WorldEnvironment.new()

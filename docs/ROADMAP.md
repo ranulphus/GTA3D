@@ -11,7 +11,10 @@ Goal: **drive a car, street-level, around a real GTA1 city** rendered in 3D.
 ### Engine / UX
 - [x] Godot **4.6** (AGX tonemapping)
 - [x] Free-fly camera mode (toggle **F**, mouse-look, WASD/Q-E, Shift boost) + HUD
-- [ ] Solid/heightfield city collision (thin-shell lids let the car sit in slightly)
+- [x] Solid city collision — multi-surface trimesh (`MapBuilder.build_collision`):
+      drivable lids + ramps + building/kerb/sea walls, two-sided so nothing tunnels.
+      Replaces the single-height heightfield, so a car can drive **under** bridges
+      and building overhangs as well as over them.
 
 ### Phase 2 — Graphics data
 - [ ] `.G24` style parser: tile textures (64×64), palettes
@@ -25,7 +28,7 @@ Goal: **drive a car, street-level, around a real GTA1 city** rendered in 3D.
 - [x] Slope/ramp geometry (45 block types, ported from OpenGTA slope1_data.h → `src/world/slope_data.gd`)
 - [x] Sky + horizon + sea plane + sun/fog (`src/world/scenery.gd`)
 - [x] Block rotation (lid 0/90/180/270) + left-right/top-bottom face-flip applied to UVs
-- [ ] Static collision from the block grid (`StaticBody3D` / heightmap)
+- [x] Static collision from the block grid (`StaticBody3D` + `ConcavePolygonShape3D`)
 - [ ] Chunk the city so it streams (256×256×6 is ~400k potential cubes)
 
 ### Phase 4 — Drive a car  ← milestone ✅ DONE

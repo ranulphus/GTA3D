@@ -17,7 +17,7 @@ func _go() -> void:
 
 	var city := MapBuilder.build(map, style)
 	root.add_child(city)
-	city.create_trimesh_collision()
+	root.add_child(MapBuilder.build_collision(map))
 
 	var spawn := SpawnFinder.find_drive_spawn(map)
 	var sx := spawn.x + 0.5
