@@ -295,7 +295,11 @@ static func _emit_cube(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	# vertex order (z1->z1->z0->z0) matches OpenGTA's SLOPE_RAW_DATA[0][0] so the
 	# tile's V axis runs +Z (south); the earlier z0-first order mirrored every
 	# road lid north-south, which scrambled kerbs/junctions once rotated.
-	if b.lid > 0 and not _occludes(map, x, y, z + 1):
+	# Always drawn (never culled by a block above): a road running UNDER an
+	# overpass deck has its lid covered from above, but with no side textures the
+	# road cube would otherwise be invisible and you'd see straight through it to
+	# the sea. Only ~300 lids are ever covered, so this is essentially free.
+	if b.lid > 0:
 		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
 			Vector3(x0, y1, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0), Vector3(x0, y1, z0),
 			_uv(b.rotation(), false, false))
