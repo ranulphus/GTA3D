@@ -25,11 +25,13 @@ const ENGINE_PER_PT := 100.0       # N per Accel point     (7 -> 800)
 const BRAKE_PER_PT := 2.0          # per Braking point     (6 -> 12)
 const REVERSE_FRAC := 0.45         # reverse top speed / engine vs forward
 
-# Handling -> steering & grip (all gentler than the old constants).
-const STEER_LOCK_BASE := 0.20      # rad of steering lock at handling 0
-const STEER_LOCK_PER_PT := 0.013   # +per handling point   (10 -> ~0.33 rad, ~19 deg)
-const STEER_RATE_BASE := 0.7       # how fast the wheel turns toward the target (rad/s)
-const STEER_RATE_PER_PT := 0.06
+# Handling -> steering & grip. The lock is what actually turns the car (the wheels
+# do the steering); it needs to be big at low speed for tight street corners, and
+# is cut right down at speed (HIGH_SPEED_STEER) so fast driving isn't twitchy.
+const STEER_LOCK_BASE := 0.32      # rad of steering lock at handling 0 (~18 deg)
+const STEER_LOCK_PER_PT := 0.023   # +per handling point   (10 -> ~0.55 rad, ~31 deg)
+const STEER_RATE_BASE := 1.2       # how fast the wheel turns toward the target (rad/s)
+const STEER_RATE_PER_PT := 0.1
 # Lateral wheel friction. Cornering load grows with speed^2, so a flat grip would
 # let only the fast cars slide. We add a speed term (faster car -> proportionally
 # more grip) to cancel that, leaving HANDLING as the real knob: lower handling
@@ -38,17 +40,20 @@ const GRIP_BASE := 1.0
 const GRIP_SPEED_PER := 0.2        # +per Speed point    (normalises the v^2 load)
 const GRIP_HANDLING_PER := 0.13    # +per Handling point (the actual grip/skid knob)
 const REAR_GRIP_FRAC := 0.95       # rear vs front grip: slight oversteer, not a spin
-const HIGH_SPEED_STEER := 0.32     # steering lock multiplier at top speed (less twitchy)
-# Yaw stability assist. The wheel friction model, left alone, spins the car right
-# round at speed. Instead we ease the body's yaw rate toward what the steering
-# intends: the car still slides sideways (the grip/skid above), but its heading
-# can't run away past the steered direction, so it never spins out. YAW_GAIN sets
-# how hard a given steer turns it; YAW_RATE (scaled by handling) how quickly the
-# yaw catches up — higher handling = crisper, lower = looser/laggier.
-const YAW_GAIN := 0.55
-const YAW_RATE_BASE := 3.0
-const YAW_RATE_PER_PT := 0.25
+const HIGH_SPEED_STEER := 0.045    # steering lock multiplier at top speed (less twitchy)
+# Steering is kinematic: the wheels alone barely turn this little body, so we ease
+# the body's yaw toward the rate the steer asks for. Low-speed turn radius is
+# ~1/(lock*YAW_GAIN); the velocity follows (grip easily holds the low load) for a
+# tight turn. At speed the lock is cut hard (HIGH_SPEED_STEER) so the asked-for yaw
+# only slightly out-runs grip -> a controlled slide, not a spin. YAW_RATE (scaled by
+# handling) is how quickly the yaw catches the target.
+const YAW_GAIN := 1.6
+const YAW_RATE_BASE := 5.0
+const YAW_RATE_PER_PT := 0.4
+const SLIP_ALIGN := 3.0         # self-aligning pull of the heading back toward the
+                                # velocity, so a slide caps into a drift, not a spin
 const ANGULAR_DAMP := 1.5      # gentle residual damping (roll/pitch settling)
+const ROLL_DAMP := 0.5         # extra bleed of roll rate each frame (anti-tip)
 
 ## Performance scores out of 10, set per car model before the node enters the tree.
 @export_range(0, 10) var speed_score := 5.0
@@ -88,7 +93,7 @@ var _brake_force := 10.0
 var _steer_lock := 0.27
 var _steer_rate := 1.0
 var _grip := 4.75
-var _yaw_rate := 4.75
+var _yaw_rate := 7.0
 
 
 func _ready() -> void:
@@ -139,7 +144,7 @@ func _build() -> void:
 	# axis still ends up about one cell wide rather than one cell long.
 	var horiz := minf(native.size.x, native.size.z)
 	var s := clampf(TARGET_WIDTH / maxf(horiz, 0.01), 0.1, 4.0)
-	center_of_mass = Vector3(0, -0.2 * s, 0)   # low CoM so it doesn't tip
+	center_of_mass = Vector3(0, -0.2 * s, 0)   # modestly low; ROLL_DAMP does the anti-tip
 
 	if src != null and body.get_parent() != null:
 		body.owner = null   # detach from the source scene before reparenting
@@ -332,11 +337,21 @@ func _physics_process(delta: float) -> void:
 	_steer = move_toward(_steer, steer * lock, _steer_rate * delta)
 	steering = _steer
 
-	# Yaw assist: ease the body's actual turn rate toward what the steering intends.
-	# The wheels still slide the car sideways (skid), but its heading can't overrun
-	# the steered direction, so hard turns slide and recover instead of spinning out.
-	# Intent flips with travel direction so reversing steers correctly.
+	# Kinematic yaw: ease the body's turn rate toward what the steer asks for, so the
+	# little body actually turns. The velocity follows at low load (tight turn) and
+	# slides at speed (skid). Intent flips with travel direction so reverse steers
+	# right. A self-aligning term pulls the heading back toward the travel direction
+	# when it slides, so a hard turn drifts and recovers instead of spinning round.
 	var intended_yaw := _steer * fwd * YAW_GAIN
+	var vel_flat := Vector3(linear_velocity.x, 0.0, linear_velocity.z)
+	var head_flat := Vector3(-global_transform.basis.z.x, 0.0, -global_transform.basis.z.z)
+	if vel_flat.length() > 3.0 and head_flat.length() > 0.01:
+		var slip := head_flat.normalized().signed_angle_to(vel_flat.normalized(), Vector3.UP)
+		intended_yaw += slip * SLIP_ALIGN
 	var av := angular_velocity
 	av.y = move_toward(av.y, intended_yaw, _yaw_rate * delta)
+	# Anti-tip: bleed off roll (spin about the car's own forward axis) so a hard
+	# turn can't lever it onto two wheels; the low centre of mass rights the rest.
+	var roll_axis := global_transform.basis.z
+	av -= roll_axis * av.dot(roll_axis) * ROLL_DAMP
 	angular_velocity = av
