@@ -77,8 +77,10 @@ static func build(map: GTA1Map, style: GTA1Style, region := Rect2i(0, 0, GTA1Map
 
 
 ## Street level (stack z of the common road) and the filler tile for the bedrock.
+## BEDROCK_LID is the pavement/sidewalk tile (e.g. the one under (77,63)); the gaps
+## sit mostly in building footprints, so pavement blends better than road.
 const STREET_Z := 1
-const BEDROCK_LID := 1
+const BEDROCK_LID := 8
 
 
 ## Bedrock floor: some GTA1 columns have nothing at street level — the lowest block
