@@ -27,7 +27,7 @@ Goal: **drive a car, street-level, around a real GTA1 city** rendered in 3D.
 - [x] Offscreen render pipeline (Xvfb + OpenGL3) for headless screenshots
 - [x] Slope/ramp geometry (45 block types, ported from OpenGTA slope1_data.h → `src/world/slope_data.gd`)
 - [x] Sky + horizon + sea plane + sun/fog (`src/world/scenery.gd`)
-- [x] Block rotation (lid 0/90/180/270) + left-right/top-bottom face-flip applied to UVs
+- [x] Block rotation (lid 0/90/180/270) + flip_left_right E/W-wall face-flip applied to UVs (un-reverses banners like "General HOSPITAL", the DOCKS signs; N/S faces read correct without a flip)
 - [x] Static collision from the block grid (`StaticBody3D` + `ConcavePolygonShape3D`)
 - [ ] Chunk the city so it streams (256×256×6 is ~400k potential cubes)
 

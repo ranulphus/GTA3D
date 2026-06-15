@@ -14,8 +14,10 @@ extends RefCounted
 ##   left/right -> -X / +X walls, index the SIDE tile set
 ##   top/bottom -> -Z / +Z walls, index the SIDE tile set
 ##
-## v1 limitations (see ROADMAP): slope/ramp blocks are drawn as full cubes;
-## block rotation / face flips are not yet applied to UVs. Calibrated visually.
+## Block rotation is applied to lid UVs and GTA1's flip_left_right bit mirrors the
+## E/W (left/right) wall + flat-panel tiles, so banners stored as a flipped half-
+## tile (e.g. "General HOSPITAL", the DOCKS signs) read the right way round.
+## Calibrated visually; see _emit_cube for why N/S faces are left unflipped.
 
 const BLOCK := 1.0
 
@@ -215,11 +217,11 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	var zt: int = b.top if b.top > 0 else b.bottom   # fence on the -Z (north) edge
 	if zt > 0:
 		_face(verts, normals, uvs, indices, atlas, zt, Vector3.FORWARD,
-			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0))
+			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0), BASE_UV)
 	var xl: int = b.left if b.left > 0 else b.right   # fence on the -X (west) edge
 	if xl > 0:
 		_face(verts, normals, uvs, indices, atlas, xl, Vector3.LEFT,
-			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1))
+			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1), BASE_UV if b.flip_left_right() else FLIP_U_UV)
 
 
 ## Slope/ramp blocks: emit the exact per-face geometry for this slope type (1-44)
@@ -366,26 +368,43 @@ static func _emit_cube(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
 			Vector3(x0, y1, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0), Vector3(x0, y1, z0),
 			_uv(b.rotation(), false, false))
+	# GTA1's flip_left_right mirrors the left/right (E/W) wall tiles, which is what
+	# un-reverses banners stored as a single half-tile placed flipped + unflipped
+	# (e.g. the "General HOSPITAL" sign). These E/W faces are wound with their U
+	# axis reversed, so a non-flipped tile already needs FLIP_U_UV to read right and
+	# the flag toggles back to BASE_UV. The N/S (top/bottom) faces are wound the
+	# other way (U already correct), and the data's N/S signs ("BAR", DOCKS arrows)
+	# read correctly straight from BASE_UV — flip_top_bottom is NOT a horizontal
+	# mirror of them, so applying one only reverses good text. Hence BASE_UV here.
+	# (Block rotation stays lid-only, per OpenGTA.)
+	var lr_uv: Array = BASE_UV if b.flip_left_right() else FLIP_U_UV
+	var tb_uv: Array = BASE_UV
 	# Left (-X)
 	if b.left > 0 and not _occludes(map, x - 1, y, z):
 		_face(verts, normals, uvs, indices, atlas, b.left, Vector3.LEFT,
-			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1))
+			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1), lr_uv)
 	# Right (+X)
 	if b.right > 0 and not _occludes(map, x + 1, y, z):
 		_face(verts, normals, uvs, indices, atlas, b.right, Vector3.RIGHT,
-			Vector3(x1, y0, z0), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0))
+			Vector3(x1, y0, z0), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0), lr_uv)
 	# Top wall / north (-Z)
 	if b.top > 0 and not _occludes(map, x, y - 1, z):
 		_face(verts, normals, uvs, indices, atlas, b.top, Vector3.FORWARD,
-			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0))
+			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0), tb_uv)
 	# Bottom wall / south (+Z)
 	if b.bottom > 0 and not _occludes(map, x, y + 1, z):
 		_face(verts, normals, uvs, indices, atlas, b.bottom, Vector3.BACK,
-			Vector3(x0, y0, z1), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x0, y1, z1))
+			Vector3(x0, y0, z1), Vector3(x1, y0, z1), Vector3(x1, y1, z1), Vector3(x0, y1, z1), tb_uv)
 
 
 ## Local UV corners matching the a->b->c->d vertex winding (OpenGTA lidTex order).
 const BASE_UV: Array[Vector2] = [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+## BASE_UV mirrored horizontally (u -> 1-u, v kept). Every wall quad maps u to its
+## horizontal axis and v to vertical, so this is the GTA1 face flip: a left/right
+## wall flips when flip_left_right is set, a top/bottom wall when flip_top_bottom
+## is set. Without it, tiles the data marks as flipped (banners, road signs) render
+## mirrored — text comes out reversed / "halves swapped".
+const FLIP_U_UV: Array[Vector2] = [Vector2(1, 1), Vector2(0, 1), Vector2(0, 0), Vector2(1, 0)]
 
 
 ## Per-face UVs after applying GTA1's block rotation (0-3, cyclically shifts which
