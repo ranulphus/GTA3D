@@ -28,33 +28,41 @@ const _C2 := "res://assets/vehicles/psx/car2/Car2.obj"
 const _C3 := "res://assets/vehicles/psx/car3/Car3.obj"
 const _C4 := "res://assets/vehicles/psx/car4/Car4.obj"
 const _C8 := "res://assets/vehicles/psx/car8/Car8.obj"
+# Per-model handling profiles, rated out of 10: [Speed, Acceleration, Braking,
+# Handling]. Colour/style variants of a model share its profile.
+const P1 := {"spd": 5.0, "acc": 5.0, "brk": 5.0, "hnd": 5.0}   # Car 01 wagon
+const P2 := {"spd": 6.0, "acc": 6.0, "brk": 6.0, "hnd": 6.0}   # Car 02
+const P3 := {"spd": 6.0, "acc": 7.0, "brk": 6.0, "hnd": 7.0}   # Car 03 (nippy)
+const P4 := {"spd": 5.0, "acc": 5.0, "brk": 5.0, "hnd": 5.0}   # Car 04
+const P5 := {"spd": 7.0, "acc": 7.0, "brk": 7.0, "hnd": 7.0}   # Car 05 taxi/police
+const P8 := {"spd": 4.0, "acc": 4.0, "brk": 4.0, "hnd": 4.0}   # Car 08 van
 const CAR_MODELS := [
 	# Car 01 — wagon (4 colours)
-	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car.png"},
-	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_blue.png"},
-	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_gray.png"},
-	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_red.png"},
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car.png", "prof": P1},
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_blue.png", "prof": P1},
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_gray.png", "prof": P1},
+	{"obj": _C1, "tex": "res://assets/vehicles/psx/car1/car_red.png", "prof": P1},
 	# Car 02 (3 colours)
-	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2.png"},
-	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2_black.png"},
-	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2_red.png"},
+	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2.png", "prof": P2},
+	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2_black.png", "prof": P2},
+	{"obj": _C2, "tex": "res://assets/vehicles/psx/car2/car2_red.png", "prof": P2},
 	# Car 03 (3 colours)
-	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3.png"},
-	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3_red.png"},
-	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3_yellow.png"},
+	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3.png", "prof": P3},
+	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3_red.png", "prof": P3},
+	{"obj": _C3, "tex": "res://assets/vehicles/psx/car3/car3_yellow.png", "prof": P3},
 	# Car 04 (4 colours)
-	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4.png"},
-	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_grey.png"},
-	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_lightgrey.png"},
-	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_lightorange.png"},
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4.png", "prof": P4},
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_grey.png", "prof": P4},
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_lightgrey.png", "prof": P4},
+	{"obj": _C4, "tex": "res://assets/vehicles/psx/car4/car4_lightorange.png", "prof": P4},
 	# Car 05 — taxi + police (2 styles, each its own body with a light bar)
-	{"obj": "res://assets/vehicles/psx/car5/Car5_Taxi.obj", "tex": "res://assets/vehicles/psx/car5/car5_taxi.png"},
-	{"obj": "res://assets/vehicles/psx/car5/Car5_Police.obj", "tex": "res://assets/vehicles/psx/car5/car5_police.png"},
+	{"obj": "res://assets/vehicles/psx/car5/Car5_Taxi.obj", "tex": "res://assets/vehicles/psx/car5/car5_taxi.png", "prof": P5},
+	{"obj": "res://assets/vehicles/psx/car5/Car5_Police.obj", "tex": "res://assets/vehicles/psx/car5/car5_police.png", "prof": P5},
 	# Car 08 — van (4 colours)
-	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8.png"},
-	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_grey.png"},
-	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_mail.png"},
-	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_purple.png"},
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8.png", "prof": P8},
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_grey.png", "prof": P8},
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_mail.png", "prof": P8},
+	{"obj": _C8, "tex": "res://assets/vehicles/psx/car8/Car8_purple.png", "prof": P8},
 ]
 
 @export var city := "NYC"
@@ -239,6 +247,11 @@ func _spawn_car(idx: int, xform: Transform3D) -> void:
 	car.model_path = spec["obj"]
 	car.texture_path = spec["tex"]
 	car.model_yaw_deg = PSX_YAW
+	var prof: Dictionary = spec["prof"]
+	car.speed_score = prof["spd"]
+	car.accel_score = prof["acc"]
+	car.brake_score = prof["brk"]
+	car.handling_score = prof["hnd"]
 	car.use_input = not _fly
 	add_child(car)
 	car.global_transform = xform

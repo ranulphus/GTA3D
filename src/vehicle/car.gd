@@ -12,10 +12,49 @@ extends VehicleBody3D
 ## Control: by default reads the arrow keys (ui_* actions). For headless tests set
 ## `use_input = false` and drive via control_throttle / control_steer.
 
-const ENGINE_FORCE := 800.0
-const MAX_STEER := 0.55
-const BRAKE_FORCE := 12.0
-const STEER_SPEED := 3.0
+## Performance is rated 0..10 per attribute and mapped to physics here. The anchors
+## reproduce the measured "stock" car at the scores the brief assigned it:
+##   Speed 10  -> ~45 m/s top speed (the old uncapped top speed)
+##   Accel 7   -> 800 N engine force (the old value)
+##   Braking 6 -> 12 brake force (the old value)
+## Handling drives steering rate, lock and grip; even 10 is far tamer than the old
+## on-rails 0.55 rad / 10.5 grip, and lower scores slide more.
+const TOP_SPEED_PER_PT := 4.5      # m/s per Speed point   (10 -> 45)
+const ENGINE_BASE := 100.0         # N
+const ENGINE_PER_PT := 100.0       # N per Accel point     (7 -> 800)
+const BRAKE_PER_PT := 2.0          # per Braking point     (6 -> 12)
+const REVERSE_FRAC := 0.45         # reverse top speed / engine vs forward
+
+# Handling -> steering & grip (all gentler than the old constants).
+const STEER_LOCK_BASE := 0.20      # rad of steering lock at handling 0
+const STEER_LOCK_PER_PT := 0.013   # +per handling point   (10 -> ~0.33 rad, ~19 deg)
+const STEER_RATE_BASE := 0.7       # how fast the wheel turns toward the target (rad/s)
+const STEER_RATE_PER_PT := 0.06
+# Lateral wheel friction. Cornering load grows with speed^2, so a flat grip would
+# let only the fast cars slide. We add a speed term (faster car -> proportionally
+# more grip) to cancel that, leaving HANDLING as the real knob: lower handling
+# slides more, higher grips more. The yaw assist stops any of it becoming a spin.
+const GRIP_BASE := 1.0
+const GRIP_SPEED_PER := 0.2        # +per Speed point    (normalises the v^2 load)
+const GRIP_HANDLING_PER := 0.13    # +per Handling point (the actual grip/skid knob)
+const REAR_GRIP_FRAC := 0.95       # rear vs front grip: slight oversteer, not a spin
+const HIGH_SPEED_STEER := 0.32     # steering lock multiplier at top speed (less twitchy)
+# Yaw stability assist. The wheel friction model, left alone, spins the car right
+# round at speed. Instead we ease the body's yaw rate toward what the steering
+# intends: the car still slides sideways (the grip/skid above), but its heading
+# can't run away past the steered direction, so it never spins out. YAW_GAIN sets
+# how hard a given steer turns it; YAW_RATE (scaled by handling) how quickly the
+# yaw catches up — higher handling = crisper, lower = looser/laggier.
+const YAW_GAIN := 0.55
+const YAW_RATE_BASE := 3.0
+const YAW_RATE_PER_PT := 0.25
+const ANGULAR_DAMP := 1.5      # gentle residual damping (roll/pitch settling)
+
+## Performance scores out of 10, set per car model before the node enters the tree.
+@export_range(0, 10) var speed_score := 5.0
+@export_range(0, 10) var accel_score := 5.0
+@export_range(0, 10) var brake_score := 5.0
+@export_range(0, 10) var handling_score := 5.0
 
 ## Target body width (the narrow horizontal side) in world units. GTA1 streets are
 ## 1 unit per map cell; a car a bit narrower than a cell looks right.
@@ -42,6 +81,14 @@ var control_steer := 0.0      # -1 (right) .. 1 (left)
 var control_brake := 0.0      # 0 .. 1
 
 var _steer := 0.0
+# Derived performance, computed from the scores in _ready (before the wheels).
+var _top_speed := 22.5
+var _engine_force := 600.0
+var _brake_force := 10.0
+var _steer_lock := 0.27
+var _steer_rate := 1.0
+var _grip := 4.75
+var _yaw_rate := 4.75
 
 
 func _ready() -> void:
@@ -49,7 +96,21 @@ func _ready() -> void:
 	can_sleep = false       # a sleeping RigidBody ignores engine_force
 	continuous_cd = true    # don't tunnel through the city's thin lid collision
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	_compute_performance()
+	angular_damp = ANGULAR_DAMP
 	_build()
+
+
+## Map the 0..10 scores to physics. Called before _build so the wheels pick up the
+## grip. See the score->value anchors in the constants above.
+func _compute_performance() -> void:
+	_top_speed = maxf(6.0, TOP_SPEED_PER_PT * speed_score)
+	_engine_force = ENGINE_BASE + ENGINE_PER_PT * accel_score
+	_brake_force = BRAKE_PER_PT * brake_score
+	_steer_lock = STEER_LOCK_BASE + STEER_LOCK_PER_PT * handling_score
+	_steer_rate = STEER_RATE_BASE + STEER_RATE_PER_PT * handling_score
+	_grip = GRIP_BASE + GRIP_SPEED_PER * speed_score + GRIP_HANDLING_PER * handling_score
+	_yaw_rate = YAW_RATE_BASE + YAW_RATE_PER_PT * handling_score
 
 
 func _build() -> void:
@@ -121,7 +182,9 @@ func _mount_wheels(src: Node, named: Dictionary, s: float) -> void:
 		wheel.wheel_radius = _wheel_radius(wnode) * s
 		wheel.suspension_travel = 0.3
 		wheel.suspension_stiffness = 30.0
-		wheel.wheel_friction_slip = 10.5
+		# Rear wheels grip a touch less than the front so hard turns oversteer
+		# (the back steps out) instead of pushing straight on.
+		wheel.wheel_friction_slip = _grip if wheel.position.z < 0.0 else _grip * REAR_GRIP_FRAC
 		wheel.damping_compression = 0.6
 		wheel.damping_relaxation = 0.9
 		wheel.wheel_rest_length = 0.15 * s
@@ -168,7 +231,9 @@ func _synth_wheels(aabb: AABB, s: float) -> void:
 		# Stiff, short, well-damped: minimal body bob so the static wheels look right.
 		wheel.suspension_travel = 0.1
 		wheel.suspension_stiffness = 60.0
-		wheel.wheel_friction_slip = 10.5
+		# Lateral grip from the handling score; rear grips a little less so the back
+		# steps out in hard turns (skid/oversteer) rather than driving on rails.
+		wheel.wheel_friction_slip = _grip if p.z < z_mid else _grip * REAR_GRIP_FRAC
 		wheel.damping_compression = 0.9
 		wheel.damping_relaxation = 1.0
 		wheel.wheel_rest_length = 0.04
@@ -229,15 +294,43 @@ func _wheel_radius(wnode: Node3D) -> float:
 func _physics_process(delta: float) -> void:
 	var throttle := control_throttle
 	var steer := control_steer
-	var brk := control_brake
 	if use_input:
 		throttle = Input.get_action_strength("ui_up") - Input.get_action_strength("ui_down")
 		steer = Input.get_action_strength("ui_left") - Input.get_action_strength("ui_right")
 
-	_steer = move_toward(_steer, steer * MAX_STEER, STEER_SPEED * delta)
+	# Forward speed along the car's hood (-Z). The model is yawed so its hood faces
+	# -Z; a positive engine_force pushes +Z, so "forward" needs a negative force.
+	var fwd := linear_velocity.dot(-global_transform.basis.z)
+
+	if throttle > 0.0:
+		# Accelerate forward, but cut the engine once at the speed cap.
+		engine_force = 0.0 if fwd >= _top_speed else -throttle * _engine_force
+		brake = control_brake * _brake_force
+	elif throttle < 0.0 and fwd > 1.0:
+		# Moving forward with reverse held = brake (Braking score), don't reverse yet.
+		engine_force = 0.0
+		brake = -throttle * _brake_force
+	elif throttle < 0.0:
+		# Stopped/rolling back: reverse, capped slower than forward.
+		engine_force = 0.0 if fwd <= -_top_speed * REVERSE_FRAC else -throttle * _engine_force * REVERSE_FRAC
+		brake = 0.0
+	else:
+		engine_force = 0.0
+		brake = control_brake * _brake_force
+
+	# Steering: ease toward the target lock (gradual the longer the key is held) and
+	# tighten less at speed so fast turns aren't twitchy. _steer_rate / _steer_lock
+	# both come from the handling score; even handling 10 is far gentler than before.
+	var speed_t := clampf(absf(fwd) / maxf(_top_speed, 1.0), 0.0, 1.0)
+	var lock := _steer_lock * lerpf(1.0, HIGH_SPEED_STEER, speed_t)
+	_steer = move_toward(_steer, steer * lock, _steer_rate * delta)
 	steering = _steer
-	# Measured: positive engine_force drives the car toward +Z. The model is yawed so
-	# its hood faces -Z and the chase cam sits behind on +Z, so "forward" (W /
-	# throttle > 0) has to push toward -Z — hence the negation.
-	engine_force = -throttle * ENGINE_FORCE
-	brake = brk * BRAKE_FORCE
+
+	# Yaw assist: ease the body's actual turn rate toward what the steering intends.
+	# The wheels still slide the car sideways (skid), but its heading can't overrun
+	# the steered direction, so hard turns slide and recover instead of spinning out.
+	# Intent flips with travel direction so reversing steers correctly.
+	var intended_yaw := _steer * fwd * YAW_GAIN
+	var av := angular_velocity
+	av.y = move_toward(av.y, intended_yaw, _yaw_rate * delta)
+	angular_velocity = av
