@@ -16,13 +16,13 @@ extends VehicleBody3D
 ## reproduce the measured "stock" car at the scores the brief assigned it:
 ##   Speed 10  -> ~45 m/s top speed (the old uncapped top speed)
 ##   Accel 7   -> 800 N engine force (the old value)
-##   Braking 6 -> 12 brake force (the old value)
+##   Braking 6 -> 24 brake force (doubled from the original 12 for snappier stops)
 ## Handling drives steering rate, lock and grip; even 10 is far tamer than the old
 ## on-rails 0.55 rad / 10.5 grip, and lower scores slide more.
 const TOP_SPEED_PER_PT := 4.5      # m/s per Speed point   (10 -> 45)
 const ENGINE_BASE := 100.0         # N
 const ENGINE_PER_PT := 100.0       # N per Accel point     (7 -> 800)
-const BRAKE_PER_PT := 2.0          # per Braking point     (6 -> 12)
+const BRAKE_PER_PT := 4.0          # per Braking point     (6 -> 24, ~2x faster stops)
 const REVERSE_FRAC := 0.45         # reverse top speed / engine vs forward
 
 # Handling -> steering & grip. The lock is what actually turns the car (the wheels
