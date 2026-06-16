@@ -28,11 +28,12 @@ const TURN_RATE := 16.0        # rad/s the model swings to face travel
 const MODEL_YAW_DEG := 0.0
 ## Speed (units/s) above which the run clip plays instead of walk.
 const RUN_THRESHOLD := 1.35
-## The Mixamo clips cover roughly this much ground per second at their authored
-## cadence; we scale playback by actual_speed/this so the feet track the (now
-## slower) movement instead of sliding.
-const WALK_CLIP_REF := 1.5
-const RUN_CLIP_REF := 3.6
+## Play the clips at their natural cadence regardless of the (deliberately slow)
+## ground speed. Matching playback to the halved speed made the legs crawl in slow
+## motion; a touch of foot-slide is the accepted trade for a natural-looking stride.
+## Tuned to how the walk/run looked before the ground speed was halved.
+const WALK_ANIM_SCALE := 1.1
+const RUN_ANIM_SCALE := 1.05
 
 var _model: Node3D
 var _anim: AnimationPlayer
@@ -132,10 +133,10 @@ func _update_anim(speed: float) -> void:
 		_anim.speed_scale = 1.0
 	elif speed < RUN_THRESHOLD:
 		_play("ped/walk")
-		_anim.speed_scale = clampf(speed / WALK_CLIP_REF, 0.5, 1.4)
+		_anim.speed_scale = WALK_ANIM_SCALE
 	else:
 		_play("ped/run")
-		_anim.speed_scale = clampf(speed / RUN_CLIP_REF, 0.45, 1.3)
+		_anim.speed_scale = RUN_ANIM_SCALE
 
 
 func _play(clip: String) -> void:
