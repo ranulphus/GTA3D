@@ -156,13 +156,16 @@ static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		# A bridge banner panel spanning the road UNDER an overpass walls off the
 		# underpass (it's a thin panel from the road surface up, with collision). Such
 		# a banner is, very specifically: an overpass-structure tile (block_type 2)
-		# sitting directly on a road (a solid block_type-0 surface below) with more
-		# overpass directly above. Those — and ONLY those — get lifted one cell to hang
-		# at the structure above, clearing the road. Anything else (building signs,
-		# ground/roof fences, kerb railings) is left exactly where it is.
+		# sitting directly on a road (a solid block_type-0 surface below) with a FLAT
+		# overpass deck directly above. Those — and ONLY those — get lifted one cell to
+		# hang at the deck, clearing the road. The "flat deck above" test is what keeps
+		# a shop's front sign (also block_type 2, over the road, but under its own
+		# PITCHED roof — a slope) from being wrongly raised. Anything else (building
+		# signs, ground/roof fences, kerb railings) is left exactly where it is.
 		var above := map.get_block(x, y, z + 1)
 		var on_road := below != null and not below.is_empty() and not below.is_flat() and below.block_type() == 0
-		var hang := b.block_type() == 2 and on_road and above != null and not above.is_empty()
+		var deck_above := above != null and not above.is_empty() and above.slope_type() == 0
+		var hang := b.block_type() == 2 and on_road and deck_above
 		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, below, hang)
 	else:
 		_emit_cube(verts, normals, uvs, indices, atlas, style, map, b, x, y, z, fx, fy, fz)
