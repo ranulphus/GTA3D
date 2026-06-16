@@ -116,6 +116,7 @@ var _pitch := 0.0
 var _ped: Pedestrian
 var _on_foot := true   # the player starts as a pedestrian; false = sitting in the car
 var _ped_spawn := Vector3.ZERO
+var _pause: PauseMenu
 
 var _map: GTA1Map
 var _water_tile := -1
@@ -194,6 +195,12 @@ func _ready() -> void:
 
 	_add_hud()
 
+	# [Esc] pause menu (runs while the tree is paused). On resume it asks us to put
+	# the mouse back the way the current mode wants it.
+	_pause = PauseMenu.new()
+	add_child(_pause)
+	_pause.resumed.connect(_restore_mouse)
+
 
 func _add_hud() -> void:
 	var layer := CanvasLayer.new()
@@ -240,10 +247,10 @@ func _update_hud() -> void:
 	if _fly:
 		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  mouse look  ·  [F] back"
 	elif _on_foot:
-		_hud.text = "ON FOOT  ·  WASD move  ·  Shift run  ·  mouse look  ·  [Enter] get in car  ·  [F] fly"
+		_hud.text = "ON FOOT  ·  WASD move  ·  Shift run  ·  mouse look  ·  [Enter] get in car  ·  [F] fly  ·  [Esc] menu"
 	else:
 		var car_hint := "  ·  [C] next car" if CAR_MODELS.size() > 1 else ""
-		_hud.text = "DRIVE  ·  arrows / WASD  ·  [Enter] get out  ·  [F] fly" + car_hint
+		_hud.text = "DRIVE  ·  arrows / WASD  ·  [Enter] get out  ·  [F] fly" + car_hint + "  ·  [Esc] menu"
 
 
 func _physics_process(delta: float) -> void:
@@ -558,6 +565,12 @@ func _set_fly(on: bool) -> void:
 		# Back to the previous mode: on foot keeps mouse-look captured, the car frees it.
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _on_foot else Input.MOUSE_MODE_VISIBLE
 	_update_hud()
+
+
+## Put the mouse back the way the current mode wants it (used after the pause menu
+## closes): captured for mouse-look on foot or in fly, free while driving.
+func _restore_mouse() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if (_on_foot or _fly) else Input.MOUSE_MODE_VISIBLE
 
 
 ## Wait (up to ~2s) until the city collision is queryable at (x,z); returns the
