@@ -22,8 +22,10 @@ const WALK_SPEED := 1.7        # units/s
 const RUN_SPEED := 3.9
 const ACCEL := 16.0            # how fast it reaches walk/run speed
 const TURN_RATE := 16.0        # rad/s the model swings to face travel
-## Yaw (deg) so the model's front lines up with its travel direction. Tuned visually.
-const MODEL_YAW_DEG := 180.0
+## Yaw (deg) so the model's front lines up with its travel direction. The Mixamo
+## rig faces +Z, the opposite of the model's travel basis, so no extra turn (0) puts
+## its front along the way it walks.
+const MODEL_YAW_DEG := 0.0
 ## Speed (units/s) above which the run clip plays instead of walk.
 const RUN_THRESHOLD := 2.7
 ## The Mixamo clips look natural at roughly these ground speeds; we scale playback
