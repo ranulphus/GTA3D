@@ -148,7 +148,13 @@ static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		map: GTA1Map, b: GTA1Block, x: int, y: int, z: int, fx: float, fy: float, fz: float) -> void:
 	if b.is_flat():
 		var below := map.get_block(x, y, z - 1) if z > 0 else null
-		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, below)
+		# A banner/sign panel hanging in the gap UNDER a bridge (a structure in the
+		# cell above, and the drivable road surface at/below this level) must hang up
+		# at that structure, not span down onto the road — otherwise it walls off the
+		# underpass. Such panels get raised one cell so the car clears them beneath.
+		var above := map.get_block(x, y, z + 1)
+		var hang := above != null and not above.is_empty() and map.get_surface_y(x, y) <= z
+		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, below, hang)
 	elif b.slope_type() == 0:
 		_emit_cube(verts, normals, uvs, indices, atlas, style, map, b, x, y, z, fx, fy, fz)
 	else:
@@ -165,7 +171,7 @@ static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 ## planes to avoid z-fighting.
 const FLAT_EPS := 0.03
 static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
-		b: GTA1Block, fx: float, fy: float, fz: float, below: GTA1Block = null) -> void:
+		b: GTA1Block, fx: float, fy: float, fz: float, below: GTA1Block = null, hang := false) -> void:
 	var x0 := fx
 	var x1 := fx + BLOCK
 	var y0 := fy
@@ -214,15 +220,19 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	# the fence a cell apart; centring it left it hovering half a cell out over the
 	# water. The edge IS the boundary. (Fall back to bottom/right for the tile if a
 	# block only carries those, but keep the panel on the z0/x0 boundary.)
+	# `hang`: this panel is a banner hanging under a bridge over a road, so lift it a
+	# cell to sit at the structure above instead of walling off the underpass.
+	var py0 := y0 + BLOCK if hang else y0
+	var py1 := y1 + BLOCK if hang else y1
 	var zt: int = b.top if b.top > 0 else b.bottom   # fence on the -Z (north) edge
 	if zt > 0:
 		_face(verts, normals, uvs, indices, atlas, zt, Vector3.FORWARD,
-			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0),
+			Vector3(x1, py0, z0), Vector3(x0, py0, z0), Vector3(x0, py1, z0), Vector3(x1, py1, z0),
 			FLIP_U_UV if b.flip_top_bottom() else BASE_UV)
 	var xl: int = b.left if b.left > 0 else b.right   # fence on the -X (west) edge
 	if xl > 0:
 		_face(verts, normals, uvs, indices, atlas, xl, Vector3.LEFT,
-			Vector3(x0, y0, z1), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x0, y1, z1), BASE_UV if b.flip_left_right() else FLIP_U_UV)
+			Vector3(x0, py0, z1), Vector3(x0, py0, z0), Vector3(x0, py1, z0), Vector3(x0, py1, z1), BASE_UV if b.flip_left_right() else FLIP_U_UV)
 
 
 ## Slope/ramp blocks: emit the exact per-face geometry for this slope type (1-44)
