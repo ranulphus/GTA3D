@@ -13,9 +13,15 @@ extends RefCounted
 ## (so NYC/MIAMI/SANB all work) and lay water on every cell whose ground (z=0) block
 ## wears it.
 
-## World Y of the water surface. The z=0 water block spans Y[0,1], so its lid — the
-## surface GTA1 draws the water tile on — sits at Y=1. We float the skin from here.
-const WATER_LEVEL := 1.0
+## World Y of the water surface. The river is a channel 1 unit deep: the riverbed
+## (the z=0 water block's lid) sits at Y=1 and the banks/streets at Y=2. Floating the
+## surface at Y=1 left the water a paper-thin film on the bed; raising it to 1.6 fills
+## the channel to ~0.6 units deep, so the translucent surface shows the bed 0.6 below
+## and a real waterline climbs the channel walls. (Still well clear of the riverbed,
+## so the waves can swing both ways without touching it.)
+const WATER_LEVEL := 1.6
+## Depth of the channel bed below the surface — only used to size the mesh AABB.
+const BED_Y := 1.0
 ## Subcells per map cell. The waves are long (several units), so 2 (a 0.5-unit grid)
 ## is plenty of vertices for smooth crests without bloating the mesh.
 const SUBDIV := 2
@@ -107,7 +113,7 @@ static func build(map: GTA1Map) -> MeshInstance3D:
 	mi.mesh = mesh
 	# The waves push verts up off WATER_LEVEL; a generous custom AABB stops the
 	# surface being frustum-culled when the camera is low to the water.
-	mi.custom_aabb = AABB(Vector3(0, WATER_LEVEL - 1, 0), Vector3(GTA1Map.DIM, 3, GTA1Map.DIM))
+	mi.custom_aabb = AABB(Vector3(0, BED_Y - 0.5, 0), Vector3(GTA1Map.DIM, WATER_LEVEL - BED_Y + 1.5, GTA1Map.DIM))
 	return mi
 
 
@@ -152,8 +158,8 @@ varying vec3 v_world;
 void vertex() {
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	float t = TIME * wave_speed;
-	// bulge UP only (0..amp) so the skin never dips below the riverbed tile below it
-	VERTEX.y += (swell(v_world.xz, t) * 0.5 + 0.5) * wave_amp;
+	// surface sits well above the riverbed now, so swing the swell both ways
+	VERTEX.y += swell(v_world.xz, t) * wave_amp;
 }
 
 void fragment() {
