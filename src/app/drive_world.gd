@@ -1,13 +1,24 @@
 extends Node3D
 
-## Playable scene: loads a GTA1 city, extrudes it, spawns a drivable car on a
-## street, and follows it with a chase camera. This is the interactive entry
-## point — open the project and press Play, then drive with the arrow keys / WASD.
+## Playable scene: loads a GTA1 city and extrudes it, then drops the player in ON
+## FOOT next to a parked car. WASD + mouse-look to walk (Shift to run); [Enter] by a
+## car gets in and hands control to the chase-cam driving; [Enter] again gets out.
+## [F] is a free-fly debug camera; [C] cycles car models while driving.
 
 const SEA_LEVEL := 0.85
 const FLY_SPEED := 22.0
 const FLY_BOOST := 3.5
 const MOUSE_SENS := 0.004
+
+# On-foot third-person camera: mouse orbits it around the walker. Distances are
+# small (a person is ~0.6 tall), and an occlusion ray pulls it in past walls.
+const PED_CAM_DIST := 2.2
+const PED_PIVOT_H := 0.5          # aim point ~ the walker's head/shoulders
+const PED_CAM_SMOOTH := 0.35
+const PED_PITCH_MIN := -0.25      # rad; how far the camera can look up/down
+const PED_PITCH_MAX := 1.30
+# How close the walker must be to a car to get in.
+const ENTER_RANGE := 1.4
 
 # Driving into the river is fatal, but not instantly: the car bobs on the surface
 # for a beat, then sinks slowly under for several seconds before it is lost and
@@ -102,6 +113,10 @@ var _fly := false
 var _yaw := 0.0
 var _pitch := 0.0
 
+var _ped: Pedestrian
+var _on_foot := true   # the player starts as a pedestrian; false = sitting in the car
+var _ped_spawn := Vector3.ZERO
+
 var _map: GTA1Map
 var _water_tile := -1
 var _gravity := 9.8
@@ -158,14 +173,24 @@ func _ready() -> void:
 	# Face the car down the road's long axis (Basis.looking_at points -Z, the
 	# vehicle's forward, along the given direction).
 	_spawn_basis = Basis.looking_at(Vector3(spawn_dir.x, 0, spawn_dir.y))
-	_spawn_car(_car_index, Transform3D(_spawn_basis, _spawn_pos))
+	_spawn_car(_car_index, Transform3D(_spawn_basis, _spawn_pos))   # parked; we start on foot
+
+	# Spawn the player on foot beside the parked car, facing down the road.
+	var perp := Vector3(spawn_dir.y, 0.0, -spawn_dir.x)
+	perp = Vector3(1, 0, 0) if perp.length() < 0.1 else perp.normalized()
+	_ped_spawn = Vector3(sx, floor_y + 0.1, sz) + perp * 0.8
+	_ped = Pedestrian.new()
+	add_child(_ped)
+	_ped.global_position = _ped_spawn
+	_yaw = atan2(-float(spawn_dir.x), -float(spawn_dir.y))
 
 	_cam = Camera3D.new()
 	_cam.fov = 70.0
 	_cam.far = 2000.0
 	add_child(_cam)
 	_cam.current = true
-	_place_camera(1.0)
+	_place_ped_camera(1.0)
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 	_add_hud()
 
@@ -198,6 +223,8 @@ func _update_coords() -> void:
 	var p: Vector3
 	if _fly and _cam != null:
 		p = _cam.global_position
+	elif _on_foot and _ped != null:
+		p = _ped.global_position
 	elif car != null:
 		p = car.global_position
 	else:
@@ -210,14 +237,48 @@ func _update_coords() -> void:
 func _update_hud() -> void:
 	if _hud == null:
 		return
-	var car_hint := "  ·  [C] next car" if CAR_MODELS.size() > 1 else ""
 	if _fly:
-		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  mouse look  ·  [F] drive" + car_hint
+		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  mouse look  ·  [F] back"
+	elif _on_foot:
+		_hud.text = "ON FOOT  ·  WASD move  ·  Shift run  ·  mouse look  ·  [Enter] get in car  ·  [F] fly"
 	else:
-		_hud.text = "DRIVE  ·  arrows / WASD  ·  [F] free-fly camera" + car_hint
+		var car_hint := "  ·  [C] next car" if CAR_MODELS.size() > 1 else ""
+		_hud.text = "DRIVE  ·  arrows / WASD  ·  [Enter] get out  ·  [F] fly" + car_hint
 
 
 func _physics_process(delta: float) -> void:
+	if _fly:
+		return   # the free-fly camera is driven in _process
+	if _on_foot:
+		_update_on_foot(delta)
+	else:
+		_update_in_car(delta)
+
+
+# --- on foot ---
+
+func _update_on_foot(delta: float) -> void:
+	if _ped == null:
+		return
+	# WASD relative to where the camera is looking; Shift to run.
+	var fwd_in := Input.get_action_strength("ui_up") - Input.get_action_strength("ui_down")
+	var side_in := Input.get_action_strength("ui_right") - Input.get_action_strength("ui_left")
+	var forward := Vector3(-sin(_yaw), 0.0, -cos(_yaw))
+	var right := Vector3(cos(_yaw), 0.0, -sin(_yaw))
+	var wish := forward * fwd_in + right * side_in
+	var running := Input.is_physical_key_pressed(KEY_SHIFT)
+	_ped.move(delta, wish, running)
+	# Safety net: if the walker somehow drops out of the world, put it back.
+	if _ped.global_position.y < -3.0:
+		_ped.velocity = Vector3.ZERO
+		_ped.global_position = _ped_spawn
+	if _cam != null:
+		_place_ped_camera(PED_CAM_SMOOTH)
+
+
+# --- in car ---
+
+func _update_in_car(delta: float) -> void:
 	if car == null:
 		return
 	# Safety net: if the car ever ends up below the world, put it back on the
@@ -227,7 +288,7 @@ func _physics_process(delta: float) -> void:
 		car.angular_velocity = Vector3.ZERO
 		car.global_transform = Transform3D(_spawn_basis, _spawn_pos)
 	_update_water(delta)
-	if _cam != null and not _fly:
+	if _cam != null:
 		if _water_state == WaterState.DRY:
 			_place_camera(camera_smooth)
 		else:
@@ -351,6 +412,61 @@ func _place_camera(weight: float) -> void:
 	_cam.look_at(car.global_position + flat * look_ahead + Vector3(0, CAM_LOOK_HEIGHT, 0), Vector3.UP)
 
 
+## Mouse-look third-person camera: orbit the walker at (_yaw, _pitch), pulling in
+## past any wall between the camera and the walker so it never clips inside geometry.
+func _place_ped_camera(weight: float) -> void:
+	var pivot := _ped.global_position + Vector3(0, PED_PIVOT_H, 0)
+	var back := Vector3(sin(_yaw) * cos(_pitch), sin(_pitch), cos(_yaw) * cos(_pitch))
+	var dist := PED_CAM_DIST
+	var space := get_world_3d().direct_space_state
+	if space != null:
+		var q := PhysicsRayQueryParameters3D.create(pivot, pivot + back * dist)
+		q.exclude = [_ped.get_rid()]
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty():
+			dist = clampf(pivot.distance_to(hit.position) - 0.12, 0.4, dist)
+	var want := pivot + back * dist
+	_cam.global_position = _cam.global_position.lerp(want, weight) if weight < 1.0 else want
+	_cam.look_at(pivot, Vector3.UP)
+
+
+# --- getting in and out of the car ---
+
+## Enter the parked car if the walker is close enough; otherwise do nothing.
+func _try_enter_car() -> void:
+	if car == null or _ped == null:
+		return
+	if _ped.global_position.distance_to(car.global_position) > ENTER_RANGE:
+		return
+	_on_foot = false
+	_ped.set_active(false)             # park the walker out of the way
+	car.use_input = not _fly
+	_zoom = 0.0
+	_place_camera(1.0)                 # snap the chase cam onto the car
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_update_hud()
+
+
+## Step out of the car: drop the walker beside the driver's door and take control.
+func _exit_car() -> void:
+	if car == null or _ped == null:
+		return
+	_on_foot = true
+	car.use_input = false
+	car.control_throttle = 0.0
+	car.control_steer = 0.0
+	# Driver side = the car's left (-X of its basis); nudge up so it settles down.
+	var door := car.global_position - car.global_transform.basis.x * 0.7 + Vector3(0, 0.1, 0)
+	_ped.set_active(true)
+	_ped.global_position = door
+	# Look down the car's heading so you carry on facing the way you drove.
+	var f := -car.global_transform.basis.z
+	_yaw = atan2(-f.x, -f.z)
+	_pitch = 0.3
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_update_hud()
+
+
 # --- free-fly camera ---
 
 func _process(delta: float) -> void:
@@ -379,9 +495,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			_set_fly(not _fly)
 		elif event.physical_keycode == KEY_C:
 			_cycle_car()
-	elif _fly and event is InputEventMouseMotion:
+		elif event.physical_keycode == KEY_ENTER or event.physical_keycode == KEY_KP_ENTER:
+			if not _fly:
+				if _on_foot:
+					_try_enter_car()
+				else:
+					_exit_car()
+	elif event is InputEventMouseMotion and (_fly or _on_foot):
 		_yaw -= event.relative.x * MOUSE_SENS
-		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENS, -1.4, 1.4)
+		var lo := -1.4 if _fly else PED_PITCH_MIN
+		var hi := 1.4 if _fly else PED_PITCH_MAX
+		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENS, lo, hi)
 
 
 ## (Re)build the car using model `idx`, placed at `xform`. Frees any existing car.
@@ -398,7 +522,7 @@ func _spawn_car(idx: int, xform: Transform3D) -> void:
 	car.accel_score = prof["acc"]
 	car.brake_score = prof["brk"]
 	car.handling_score = prof["hnd"]
-	car.use_input = not _fly
+	car.use_input = (not _fly) and (not _on_foot)
 	add_child(car)
 	car.global_transform = xform
 	# A fresh car is dry, even if the old one was mid-dunk when swapped.
@@ -423,7 +547,7 @@ func _cycle_car() -> void:
 func _set_fly(on: bool) -> void:
 	_fly = on
 	if car != null:
-		car.use_input = not on
+		car.use_input = (not on) and (not _on_foot)
 		car.control_throttle = 0.0
 		car.control_steer = 0.0
 	if on:
@@ -431,7 +555,8 @@ func _set_fly(on: bool) -> void:
 		_yaw = _cam.rotation.y
 		_pitch = _cam.rotation.x
 	else:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		# Back to the previous mode: on foot keeps mouse-look captured, the car frees it.
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _on_foot else Input.MOUSE_MODE_VISIBLE
 	_update_hud()
 
 

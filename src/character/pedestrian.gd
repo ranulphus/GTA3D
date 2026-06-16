@@ -1,16 +1,19 @@
 class_name Pedestrian
 extends CharacterBody3D
 
-## The on-foot player: a CharacterBody3D wearing the male_casual model. Walks/runs
-## with gravity over the city's collision, climbing kerbs and ramps, and faces the
-## way it's moving. The controller (drive_world) feeds it a world-space wish
-## direction + run flag each physics frame via move(); the body owns the physics.
+## The on-foot player: a CharacterBody3D wearing the male_casual model, which the
+## player ran through Mixamo for Idle / Walking / Running clips. Walks/runs with
+## gravity over the city collision (climbing kerbs and ramps), faces its travel
+## direction, and plays the right clip for its speed. The controller (drive_world)
+## feeds it a world-space wish direction + run flag each physics frame via move();
+## the body owns the physics and animation.
 ##
-## The model is rigged but ships no animation clips, so for now it slides (like the
-## cars do) — a walk cycle can be added later by handing the FBX an AnimationPlayer.
+## The three Mixamo exports share one skeleton, so we use Walking.fbx as the model
+## (mesh + skin + rig) and graft Idle/Running's clips onto its AnimationPlayer.
 
-const MODEL_PATH := "res://assets/characters/male_casual.fbx"
-const TEXTURE_PATH := "res://assets/characters/man_tex.png"
+const MODEL_PATH := "res://assets/characters/player/Walking.fbx"
+const IDLE_PATH := "res://assets/characters/player/Idle.fbx"
+const RUN_PATH := "res://assets/characters/player/Running.fbx"
 
 ## Human scale on the 1-unit grid (a car is ~0.5 wide): about half a cell tall.
 const HEIGHT := 0.58
@@ -21,10 +24,18 @@ const ACCEL := 16.0            # how fast it reaches walk/run speed
 const TURN_RATE := 16.0        # rad/s the model swings to face travel
 ## Yaw (deg) so the model's front lines up with its travel direction. Tuned visually.
 const MODEL_YAW_DEG := 180.0
+## Speed (units/s) above which the run clip plays instead of walk.
+const RUN_THRESHOLD := 2.7
+## The Mixamo clips look natural at roughly these ground speeds; we scale playback
+## around them so feet don't obviously slide.
+const WALK_CLIP_REF := 1.5
+const RUN_CLIP_REF := 3.6
 
 var _model: Node3D
+var _anim: AnimationPlayer
 var _face_yaw := 0.0
 var _gravity := 9.8
+var _cur_clip := ""
 
 
 func _ready() -> void:
@@ -36,7 +47,7 @@ func _ready() -> void:
 	cs.position = Vector3(0, HEIGHT * 0.5, 0)   # capsule base at the body origin (feet)
 	add_child(cs)
 	floor_max_angle = deg_to_rad(60.0)          # walk up the steeper ramps
-	floor_snap_length = 0.35                     # stick to stairs/kerbs going down
+	floor_snap_length = 0.35
 	_gravity = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 	_build_model()
 
@@ -49,23 +60,41 @@ func _build_model() -> void:
 	_model = (res as PackedScene).instantiate()
 	add_child(_model)
 	var mi := _first_mesh(_model)
-	if mi == null:
-		return
-	# Scale by the model's native height so it stands HEIGHT tall, and drop it so its
-	# feet sit on the body origin (the capsule base).
-	var aabb: AABB = mi.mesh.get_aabb()
-	var s := HEIGHT / maxf(aabb.size.y, 0.01)
-	_model.scale = Vector3(s, s, s)
-	_model.position.y = -aabb.position.y * s
+	if mi != null:
+		var aabb: AABB = mi.mesh.get_aabb()
+		var s := HEIGHT / maxf(aabb.size.y, 0.01)
+		_model.scale = Vector3(s, s, s)
+		_model.position.y = -aabb.position.y * s   # feet on the body origin
 	_model.rotation.y = deg_to_rad(MODEL_YAW_DEG)
-	var tex := load(TEXTURE_PATH) as Texture2D
-	if tex != null:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = tex
-		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		mat.roughness = 1.0
-		mat.metallic = 0.0
-		mi.material_override = mat
+
+	# Graft Idle/Walking/Running (each a separate Mixamo FBX, same skeleton) into one
+	# library on the model's own AnimationPlayer, under clean names.
+	_anim = _find_anim(_model)
+	if _anim != null:
+		var lib := AnimationLibrary.new()
+		_add_clip(lib, "walk", MODEL_PATH)
+		_add_clip(lib, "idle", IDLE_PATH)
+		_add_clip(lib, "run", RUN_PATH)
+		if _anim.has_animation_library("ped"):
+			_anim.remove_animation_library("ped")
+		_anim.add_animation_library("ped", lib)
+		_play("ped/idle")
+
+
+## Pull the single Mixamo clip out of `path` and add it to `lib` under `name`, set to
+## loop. Duplicated so it's independent of the throwaway source scene.
+func _add_clip(lib: AnimationLibrary, name: String, path: String) -> void:
+	var scene := load(path)
+	if scene == null:
+		return
+	var inst := (scene as PackedScene).instantiate()
+	var ap := _find_anim(inst)
+	if ap != null and ap.get_animation_list().size() > 0:
+		var src := ap.get_animation(ap.get_animation_list()[0])
+		var clip := src.duplicate() as Animation
+		clip.loop_mode = Animation.LOOP_LINEAR
+		lib.add_animation(name, clip)
+	inst.queue_free()
 
 
 ## Advance one physics step toward `wish_dir` (a world-space horizontal direction,
@@ -82,12 +111,35 @@ func move(delta: float, wish_dir: Vector3, running: bool) -> void:
 	velocity.z = move_toward(velocity.z, desired.z, ACCEL * delta)
 	move_and_slide()
 
-	# Face the way we're actually travelling (smoothed).
 	var hv := Vector3(velocity.x, 0.0, velocity.z)
 	if hv.length() > 0.2 and _model != null:
 		var target := atan2(hv.x, hv.z)
 		_face_yaw = lerp_angle(_face_yaw, target, clampf(TURN_RATE * delta, 0.0, 1.0))
 		_model.rotation.y = _face_yaw + deg_to_rad(MODEL_YAW_DEG)
+	_update_anim(hv.length())
+
+
+## Pick idle / walk / run by ground speed, and scale playback so the stride roughly
+## tracks how fast we're actually moving.
+func _update_anim(speed: float) -> void:
+	if _anim == null:
+		return
+	if speed < 0.15:
+		_play("ped/idle")
+		_anim.speed_scale = 1.0
+	elif speed < RUN_THRESHOLD:
+		_play("ped/walk")
+		_anim.speed_scale = clampf(speed / WALK_CLIP_REF, 0.65, 1.5)
+	else:
+		_play("ped/run")
+		_anim.speed_scale = clampf(speed / RUN_CLIP_REF, 0.7, 1.4)
+
+
+func _play(clip: String) -> void:
+	if _cur_clip == clip:
+		return
+	_cur_clip = clip
+	_anim.play(clip, 0.15)   # short cross-blend between states
 
 
 ## Current horizontal speed as a fraction of run speed (for camera / HUD).
@@ -102,6 +154,16 @@ func set_active(on: bool) -> void:
 	for c in get_children():
 		if c is CollisionShape3D:
 			(c as CollisionShape3D).disabled = not on
+
+
+func _find_anim(n: Node) -> AnimationPlayer:
+	if n is AnimationPlayer:
+		return n
+	for c in n.get_children():
+		var a := _find_anim(c)
+		if a != null:
+			return a
+	return null
 
 
 func _first_mesh(n: Node) -> MeshInstance3D:

@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bjc8t5jyykg3n"
-path="res://.godot/imported/male_casual.fbx-1e41cf9b2258fe06fea82ebe659f7d48.scn"
+uid="uid://ccwmyeori1alw"
+path="res://.godot/imported/Walking.fbx-8c08eeb3f36cd4810dd55d8ccd3b6dd1.scn"
 
 [deps]
 
-source_file="res://assets/characters/male_casual.fbx"
-dest_files=["res://.godot/imported/male_casual.fbx-1e41cf9b2258fe06fea82ebe659f7d48.scn"]
+source_file="res://assets/characters/player/Walking.fbx"
+dest_files=["res://.godot/imported/Walking.fbx-8c08eeb3f36cd4810dd55d8ccd3b6dd1.scn"]
 
 [params]
 
