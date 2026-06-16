@@ -9,6 +9,20 @@ const FLY_SPEED := 22.0
 const FLY_BOOST := 3.5
 const MOUSE_SENS := 0.004
 
+# Driving into the river is fatal, but not instantly: the car bobs on the surface
+# for a beat, settles under, then is lost and respawns — "briefly float, then sink,
+# then water death". Times in seconds; buoyancy/drag are accelerations (×mass = N).
+const FLOAT_TIME := 1.2          # bobbing on the surface before it gives up
+const SINK_TIME := 1.7           # going under before the car is written off
+const FLOAT_LINE_DROP := 0.12    # how far below the water surface the car floats
+const FLOAT_SPRING := 15.0       # pull back to the float line (bob stiffness)
+const FLOAT_DAMP := 6.0          # vertical bob damping
+const SINK_BUOYANCY := 0.78      # buoyancy as a fraction of weight while sinking (<1 -> sinks)
+const WATER_DRAG := 2.2          # horizontal drag so a car in water doesn't keep sliding
+const SINK_DEATH_Y := WaterBuilder.WATER_LEVEL - 2.5   # gone-under depth that also ends it
+
+enum WaterState { DRY, FLOATING, SINKING }
+
 # Chase camera framing (tuned for the ~1-unit-wide car): how far behind and above
 # the car the camera sits, and where ahead/up it aims. The camera zooms with
 # speed: pulled in tight when stationary, easing out to the FAR framing at the
@@ -86,6 +100,13 @@ var _fly := false
 var _yaw := 0.0
 var _pitch := 0.0
 
+var _map: GTA1Map
+var _water_tile := -1
+var _gravity := 9.8
+var _water_state := WaterState.DRY
+var _water_timer := 0.0
+var _saved_mask := 1
+
 
 func _ready() -> void:
 	_add_drive_actions()
@@ -94,6 +115,9 @@ func _ready() -> void:
 	if map == null:
 		push_error("Place %s.CMP in res://data/ (see data/README.md)" % city)
 		return
+	_map = map
+	_water_tile = WaterBuilder.detect_water_tile(map)
+	_gravity = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 	var style := GTA1Style.load_file("res://data/STYLE%03d.G24" % map.style_number)
 
 	var city_mesh := MapBuilder.build(map, style)
@@ -190,7 +214,7 @@ func _update_hud() -> void:
 		_hud.text = "DRIVE  ·  arrows / WASD  ·  [F] free-fly camera" + car_hint
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if car == null:
 		return
 	# Safety net: if the car ever ends up below the world, put it back on the
@@ -199,8 +223,83 @@ func _physics_process(_delta: float) -> void:
 		car.linear_velocity = Vector3.ZERO
 		car.angular_velocity = Vector3.ZERO
 		car.global_transform = Transform3D(_spawn_basis, _spawn_pos)
+	_update_water(delta)
 	if _cam != null and not _fly:
 		_place_camera(camera_smooth)
+
+
+# --- driving into the river: float, sink, then water death ---
+
+## Run the water state machine each physics frame: catch the car when it drops into
+## a river cell, hold it bobbing on the surface, then let it sink and write it off.
+func _update_water(delta: float) -> void:
+	match _water_state:
+		WaterState.DRY:
+			if _car_in_water():
+				_enter_water()
+		WaterState.FLOATING:
+			_water_timer += delta
+			# full buoyancy + a spring/damper holds the car bobbing at the waterline
+			_apply_water_forces(_gravity, WaterBuilder.WATER_LEVEL - FLOAT_LINE_DROP, true)
+			if _water_timer >= FLOAT_TIME:
+				_water_state = WaterState.SINKING
+				_water_timer = 0.0
+				car.collision_mask = 0   # let the chassis slip under the riverbed
+		WaterState.SINKING:
+			_water_timer += delta
+			# less-than-weight buoyancy: it eases under instead of dropping like a stone
+			_apply_water_forces(_gravity, 0.0, false)
+			if _water_timer >= SINK_TIME or car.global_position.y < SINK_DEATH_Y:
+				_water_death()
+
+
+## True when the car has actually dropped into the river: over a water cell AND down
+## near the water surface (so a car crossing a bridge ABOVE the water is left alone).
+func _car_in_water() -> bool:
+	var p := car.global_position
+	if p.y > WaterBuilder.WATER_LEVEL + 0.1:
+		return false
+	var cx := clampi(int(floor(p.x)), 0, GTA1Map.DIM - 1)
+	var cy := clampi(int(floor(p.z)), 0, GTA1Map.DIM - 1)
+	return WaterBuilder.is_water(_map, cx, cy, _water_tile)
+
+
+func _enter_water() -> void:
+	_water_state = WaterState.FLOATING
+	_water_timer = 0.0
+	_saved_mask = car.collision_mask
+	# Hand control to the water: the dunk plays out to its end, no driving back out.
+	car.use_input = false
+	car.control_throttle = 0.0
+	car.control_steer = 0.0
+	car.control_brake = 0.0
+	car.engine_force = 0.0
+	car.brake = 0.0
+
+
+## Buoyancy + drag. `frac_at_target` true = float (cancel gravity, spring to the
+## waterline); false = sink (cancel only SINK_BUOYANCY of gravity, so it eases under).
+func _apply_water_forces(g: float, target_y: float, floating: bool) -> void:
+	var fy := car.mass * g * (1.0 if floating else SINK_BUOYANCY)
+	if floating:
+		var y := car.global_position.y
+		var vy := car.linear_velocity.y
+		fy += car.mass * (FLOAT_SPRING * (target_y - y) - FLOAT_DAMP * vy)
+	car.apply_central_force(Vector3(0.0, fy, 0.0))
+	# bleed horizontal speed (water resistance) so it settles where it went in
+	var hv := Vector3(car.linear_velocity.x, 0.0, car.linear_velocity.z)
+	car.apply_central_force(-hv * car.mass * WATER_DRAG)
+
+
+## The car is lost: reset it dry on the spawn (collision restored) and clear state.
+func _water_death() -> void:
+	car.collision_mask = _saved_mask
+	car.linear_velocity = Vector3.ZERO
+	car.angular_velocity = Vector3.ZERO
+	car.global_transform = Transform3D(_spawn_basis, _spawn_pos)
+	car.use_input = not _fly
+	_water_state = WaterState.DRY
+	_water_timer = 0.0
 
 
 func _place_camera(weight: float) -> void:
@@ -286,6 +385,9 @@ func _spawn_car(idx: int, xform: Transform3D) -> void:
 	car.use_input = not _fly
 	add_child(car)
 	car.global_transform = xform
+	# A fresh car is dry, even if the old one was mid-dunk when swapped.
+	_water_state = WaterState.DRY
+	_water_timer = 0.0
 
 
 ## Swap to the next car model, keeping the current spot — upright, nudged up a touch
