@@ -25,9 +25,11 @@ func _go() -> void:
 
 	var saw_float := false
 	var saw_sink := false
+	var sink_start_t := -1.0
+	var death_t := -1.0
 	var float_y := 0.0
 	var min_y := 1000.0
-	for i in 280:                       # ~4.6s — covers float + sink + respawn
+	for i in 720:                       # ~12s — covers the ~10s float+sink+respawn
 		await physics_frame
 		var st: int = scene._water_state
 		var y: float = scene.car.global_position.y
@@ -36,9 +38,15 @@ func _go() -> void:
 			saw_float = true
 			float_y = y
 		elif st == 2:                   # SINKING
+			if not saw_sink:
+				sink_start_t = i / 60.0
 			saw_sink = true
-		if i % 30 == 0:
-			print("  t=%.2fs state=%s y=%.2f mask=%d" % [i / 60.0, _name(st), y, scene.car.collision_mask])
+		elif saw_sink and death_t < 0.0:  # back to DRY after sinking = respawn
+			death_t = i / 60.0
+		if i % 60 == 0:
+			print("  t=%.1fs state=%s y=%.2f mask=%d" % [i / 60.0, _name(st), y, scene.car.collision_mask])
+	print("sink began ~%.1fs, respawned ~%.1fs  (sink lasted ~%.1fs)"
+		% [sink_start_t, death_t, death_t - sink_start_t])
 
 	var p: Vector3 = scene.car.global_position
 	var back_at_spawn := Vector2(p.x, p.z).distance_to(Vector2(spawn.x, spawn.z)) < 1.0

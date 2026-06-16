@@ -10,16 +10,18 @@ const FLY_BOOST := 3.5
 const MOUSE_SENS := 0.004
 
 # Driving into the river is fatal, but not instantly: the car bobs on the surface
-# for a beat, settles under, then is lost and respawns — "briefly float, then sink,
-# then water death". Times in seconds; buoyancy/drag are accelerations (×mass = N).
-const FLOAT_TIME := 1.2          # bobbing on the surface before it gives up
-const SINK_TIME := 1.7           # going under before the car is written off
+# for a beat, then sinks slowly under for several seconds before it is lost and
+# respawns — "briefly float, then sink, then water death", ~10s end to end. Times
+# in seconds; buoyancy/drag are accelerations (×mass = N).
+const FLOAT_TIME := 1.5          # bobbing on the surface before it goes under
+const SINK_TIME := 9.0           # slow descent before the car is written off (~10s total)
 const FLOAT_LINE_DROP := 0.12    # how far below the water surface the car floats
 const FLOAT_SPRING := 15.0       # pull back to the float line (bob stiffness)
 const FLOAT_DAMP := 6.0          # vertical bob damping
-const SINK_BUOYANCY := 0.78      # buoyancy as a fraction of weight while sinking (<1 -> sinks)
+const SINK_SPEED := 0.2          # terminal sink speed (m/s) — a slow, heavy settle
+const SINK_VY_GAIN := 3.0        # how quickly the descent eases to that sink speed
 const WATER_DRAG := 2.2          # horizontal drag so a car in water doesn't keep sliding
-const SINK_DEATH_Y := WaterBuilder.WATER_LEVEL - 2.5   # gone-under depth that also ends it
+const SINK_DEATH_Y := WaterBuilder.WATER_LEVEL - 30.0  # far backstop; the timer normally ends it
 
 enum WaterState { DRY, FLOATING, SINKING }
 
@@ -106,6 +108,7 @@ var _gravity := 9.8
 var _water_state := WaterState.DRY
 var _water_timer := 0.0
 var _saved_mask := 1
+var _water_cam_pos := Vector3.ZERO   # held camera spot while the car drowns
 
 
 func _ready() -> void:
@@ -225,7 +228,13 @@ func _physics_process(delta: float) -> void:
 		car.global_transform = Transform3D(_spawn_basis, _spawn_pos)
 	_update_water(delta)
 	if _cam != null and not _fly:
-		_place_camera(camera_smooth)
+		if _water_state == WaterState.DRY:
+			_place_camera(camera_smooth)
+		else:
+			# Death cam: hold the camera up on the bank and watch the car go under,
+			# rather than chasing it down through the riverbed.
+			_cam.global_position = _cam.global_position.lerp(_water_cam_pos, 0.2)
+			_cam.look_at(car.global_position, Vector3.UP)
 
 
 # --- driving into the river: float, sink, then water death ---
@@ -268,6 +277,10 @@ func _enter_water() -> void:
 	_water_state = WaterState.FLOATING
 	_water_timer = 0.0
 	_saved_mask = car.collision_mask
+	# Lift the held death-cam a touch above wherever the chase cam was, for a clear
+	# downward view of the car sinking.
+	if _cam != null:
+		_water_cam_pos = _cam.global_position + Vector3(0.0, 1.2, 0.0)
 	# Hand control to the water: the dunk plays out to its end, no driving back out.
 	car.use_input = false
 	car.control_throttle = 0.0
@@ -277,14 +290,17 @@ func _enter_water() -> void:
 	car.brake = 0.0
 
 
-## Buoyancy + drag. `frac_at_target` true = float (cancel gravity, spring to the
-## waterline); false = sink (cancel only SINK_BUOYANCY of gravity, so it eases under).
+## Buoyancy + drag. `floating` true: cancel gravity and spring/damp toward the
+## waterline so it bobs. `floating` false: cancel gravity and ease the vertical
+## speed down to a slow constant SINK_SPEED, so it eases under over several seconds
+## instead of accelerating like a stone.
 func _apply_water_forces(g: float, target_y: float, floating: bool) -> void:
-	var fy := car.mass * g * (1.0 if floating else SINK_BUOYANCY)
+	var vy := car.linear_velocity.y
+	var fy := car.mass * g   # both phases first cancel gravity
 	if floating:
-		var y := car.global_position.y
-		var vy := car.linear_velocity.y
-		fy += car.mass * (FLOAT_SPRING * (target_y - y) - FLOAT_DAMP * vy)
+		fy += car.mass * (FLOAT_SPRING * (target_y - car.global_position.y) - FLOAT_DAMP * vy)
+	else:
+		fy += car.mass * (-SINK_SPEED - vy) * SINK_VY_GAIN
 	car.apply_central_force(Vector3(0.0, fy, 0.0))
 	# bleed horizontal speed (water resistance) so it settles where it went in
 	var hv := Vector3(car.linear_velocity.x, 0.0, car.linear_velocity.z)
