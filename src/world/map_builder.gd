@@ -148,12 +148,16 @@ static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		map: GTA1Map, b: GTA1Block, x: int, y: int, z: int, fx: float, fy: float, fz: float) -> void:
 	if b.is_flat():
 		var below := map.get_block(x, y, z - 1) if z > 0 else null
-		# A banner/sign panel hanging in the gap UNDER a bridge (a structure in the
-		# cell above, and the drivable road surface at/below this level) must hang up
-		# at that structure, not span down onto the road — otherwise it walls off the
-		# underpass. Such panels get raised one cell so the car clears them beneath.
+		# A bridge banner panel spanning the road UNDER an overpass walls off the
+		# underpass (it's a thin panel from the road surface up, with collision). Such
+		# a banner is, very specifically: an overpass-structure tile (block_type 2)
+		# sitting directly on a road (a solid block_type-0 surface below) with more
+		# overpass directly above. Those — and ONLY those — get lifted one cell to hang
+		# at the structure above, clearing the road. Anything else (building signs,
+		# ground/roof fences, kerb railings) is left exactly where it is.
 		var above := map.get_block(x, y, z + 1)
-		var hang := above != null and not above.is_empty() and map.get_surface_y(x, y) <= z
+		var on_road := below != null and not below.is_empty() and not below.is_flat() and below.block_type() == 0
+		var hang := b.block_type() == 2 and on_road and above != null and not above.is_empty()
 		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, below, hang)
 	elif b.slope_type() == 0:
 		_emit_cube(verts, normals, uvs, indices, atlas, style, map, b, x, y, z, fx, fy, fz)
