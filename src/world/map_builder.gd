@@ -146,7 +146,12 @@ static func build_collision(mesh: ArrayMesh) -> StaticBody3D:
 
 static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: GTA1Style,
 		map: GTA1Map, b: GTA1Block, x: int, y: int, z: int, fx: float, fy: float, fz: float) -> void:
-	if b.is_flat():
+	if b.slope_type() != 0:
+		# Slope geometry comes first: GTA1's pitched roofs (the AUTO shops, houses…)
+		# set the flat bit AND a slope type. They must be drawn as the sloped surface,
+		# not lain flat — checking is_flat() first threw the pitch away.
+		_emit_slope(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, b.slope_type())
+	elif b.is_flat():
 		var below := map.get_block(x, y, z - 1) if z > 0 else null
 		# A bridge banner panel spanning the road UNDER an overpass walls off the
 		# underpass (it's a thin panel from the road surface up, with collision). Such
@@ -159,10 +164,8 @@ static func _emit_block(verts, normals, uvs, indices, atlas: TileAtlas, style: G
 		var on_road := below != null and not below.is_empty() and not below.is_flat() and below.block_type() == 0
 		var hang := b.block_type() == 2 and on_road and above != null and not above.is_empty()
 		_emit_flat(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, below, hang)
-	elif b.slope_type() == 0:
-		_emit_cube(verts, normals, uvs, indices, atlas, style, map, b, x, y, z, fx, fy, fz)
 	else:
-		_emit_slope(verts, normals, uvs, indices, atlas, style, b, fx, fy, fz, b.slope_type())
+		_emit_cube(verts, normals, uvs, indices, atlas, style, map, b, x, y, z, fx, fy, fz)
 
 
 ## Flat blocks are zero-thickness decals/panels, not cubes: road markings, painted
