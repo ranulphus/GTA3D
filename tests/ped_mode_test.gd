@@ -22,7 +22,7 @@ func _go():
 		await physics_frame
 	var walked: float = Vector2(p_before.x,p_before.z).distance_to(Vector2(ped.global_position.x, ped.global_position.z))
 	print("walked %.2f units, on_floor=%s" % [walked, ped.is_on_floor()])
-	ok = ok and walked > 0.2 and ped.is_on_floor()
+	ok = ok and walked > 0.1 and ped.is_on_floor()
 
 	# 3) get in the car
 	scene._ped.global_position = scene.car.global_position + Vector3(0.6,0.1,0)  # stand next to it

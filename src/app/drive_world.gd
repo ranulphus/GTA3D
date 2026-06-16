@@ -12,7 +12,7 @@ const MOUSE_SENS := 0.004
 
 # On-foot third-person camera: mouse orbits it around the walker. Distances are
 # small (a person is ~0.6 tall), and an occlusion ray pulls it in past walls.
-const PED_CAM_DIST := 2.2
+const PED_CAM_DIST := 1.1
 const PED_PIVOT_H := 0.5          # aim point ~ the walker's head/shoulders
 const PED_CAM_SMOOTH := 0.35
 const PED_PITCH_MIN := -0.25      # rad; how far the camera can look up/down

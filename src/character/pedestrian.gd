@@ -18,18 +18,19 @@ const RUN_PATH := "res://assets/characters/player/Running.fbx"
 ## Human scale on the 1-unit grid (a car is ~0.5 wide): about half a cell tall.
 const HEIGHT := 0.58
 const RADIUS := 0.13
-const WALK_SPEED := 1.7        # units/s
-const RUN_SPEED := 3.9
-const ACCEL := 16.0            # how fast it reaches walk/run speed
+const WALK_SPEED := 0.85       # units/s
+const RUN_SPEED := 1.95
+const ACCEL := 12.0            # how fast it reaches walk/run speed
 const TURN_RATE := 16.0        # rad/s the model swings to face travel
 ## Yaw (deg) so the model's front lines up with its travel direction. The Mixamo
 ## rig faces +Z, the opposite of the model's travel basis, so no extra turn (0) puts
 ## its front along the way it walks.
 const MODEL_YAW_DEG := 0.0
 ## Speed (units/s) above which the run clip plays instead of walk.
-const RUN_THRESHOLD := 2.7
-## The Mixamo clips look natural at roughly these ground speeds; we scale playback
-## around them so feet don't obviously slide.
+const RUN_THRESHOLD := 1.35
+## The Mixamo clips cover roughly this much ground per second at their authored
+## cadence; we scale playback by actual_speed/this so the feet track the (now
+## slower) movement instead of sliding.
 const WALK_CLIP_REF := 1.5
 const RUN_CLIP_REF := 3.6
 
@@ -131,10 +132,10 @@ func _update_anim(speed: float) -> void:
 		_anim.speed_scale = 1.0
 	elif speed < RUN_THRESHOLD:
 		_play("ped/walk")
-		_anim.speed_scale = clampf(speed / WALK_CLIP_REF, 0.65, 1.5)
+		_anim.speed_scale = clampf(speed / WALK_CLIP_REF, 0.5, 1.4)
 	else:
 		_play("ped/run")
-		_anim.speed_scale = clampf(speed / RUN_CLIP_REF, 0.7, 1.4)
+		_anim.speed_scale = clampf(speed / RUN_CLIP_REF, 0.45, 1.3)
 
 
 func _play(clip: String) -> void:
