@@ -217,7 +217,8 @@ static func _emit_flat(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 	var zt: int = b.top if b.top > 0 else b.bottom   # fence on the -Z (north) edge
 	if zt > 0:
 		_face(verts, normals, uvs, indices, atlas, zt, Vector3.FORWARD,
-			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0), BASE_UV)
+			Vector3(x1, y0, z0), Vector3(x0, y0, z0), Vector3(x0, y1, z0), Vector3(x1, y1, z0),
+			FLIP_U_UV if b.flip_top_bottom() else BASE_UV)
 	var xl: int = b.left if b.left > 0 else b.right   # fence on the -X (west) edge
 	if xl > 0:
 		_face(verts, normals, uvs, indices, atlas, xl, Vector3.LEFT,
@@ -368,17 +369,16 @@ static func _emit_cube(verts, normals, uvs, indices, atlas: TileAtlas, style: GT
 		_face(verts, normals, uvs, indices, atlas, style.num_side + b.lid, Vector3.UP,
 			Vector3(x0, y1, z1), Vector3(x1, y1, z1), Vector3(x1, y1, z0), Vector3(x0, y1, z0),
 			_uv(b.rotation(), false, false))
-	# GTA1's flip_left_right mirrors the left/right (E/W) wall tiles, which is what
-	# un-reverses banners stored as a single half-tile placed flipped + unflipped
-	# (e.g. the "General HOSPITAL" sign). These E/W faces are wound with their U
-	# axis reversed, so a non-flipped tile already needs FLIP_U_UV to read right and
-	# the flag toggles back to BASE_UV. The N/S (top/bottom) faces are wound the
-	# other way (U already correct), and the data's N/S signs ("BAR", DOCKS arrows)
-	# read correctly straight from BASE_UV — flip_top_bottom is NOT a horizontal
-	# mirror of them, so applying one only reverses good text. Hence BASE_UV here.
-	# (Block rotation stays lid-only, per OpenGTA.)
+	# GTA1's two face-flip bits each mirror one wall pair horizontally. The E/W
+	# (left/right) faces are wound with their U axis reversed, so a non-flipped tile
+	# already needs FLIP_U_UV to read right and flip_left_right toggles back to
+	# BASE_UV (this un-reverses banners like "General HOSPITAL"). The N/S (top/bottom)
+	# faces are wound the other way (U already correct): a non-flipped tile reads
+	# straight from BASE_UV and flip_top_bottom mirrors it — which is how a sign's
+	# back-facing copy (a "← DOCKS" gantry facing the other way) is stored, so without
+	# it those come out reversed / halves-swapped. (Block rotation stays lid-only.)
 	var lr_uv: Array = BASE_UV if b.flip_left_right() else FLIP_U_UV
-	var tb_uv: Array = BASE_UV
+	var tb_uv: Array = FLIP_U_UV if b.flip_top_bottom() else BASE_UV
 	# Left (-X)
 	if b.left > 0 and not _occludes(map, x - 1, y, z):
 		_face(verts, normals, uvs, indices, atlas, b.left, Vector3.LEFT,
