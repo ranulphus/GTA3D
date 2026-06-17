@@ -117,6 +117,7 @@ var _ped: Pedestrian
 var _on_foot := true   # the player starts as a pedestrian; false = sitting in the car
 var _ped_spawn := Vector3.ZERO
 var _pause: PauseMenu
+var _traffic: TrafficManager
 
 var _map: GTA1Map
 var _water_tile := -1
@@ -184,6 +185,14 @@ func _ready() -> void:
 	add_child(_ped)
 	_ped.global_position = _ped_spawn
 	_yaw = atan2(-float(spawn_dir.x), -float(spawn_dir.y))
+
+	# Ambient traffic: derive the road network from the road tiles (GTA1 stored no
+	# lane network) and let a fleet wander it near where the player starts. The cars
+	# self-drive from their own _physics_process and freeze with the tree on pause.
+	var road := RoadGraph.build(map)
+	_traffic = TrafficManager.new()
+	add_child(_traffic)
+	_traffic.populate(road, 30, spawn_cell, 45)
 
 	_cam = Camera3D.new()
 	_cam.fov = 70.0
