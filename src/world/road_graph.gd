@@ -158,9 +158,65 @@ func build_debug_mesh(region := Rect2i(0, 0, DIM, DIM)) -> Node3D:
 	im.surface_end()
 	var lines := MeshInstance3D.new()
 	lines.mesh = im
-	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.1, 1.0, 0.9)
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	lines.material_override = m
+	lines.material_override = _unshaded(Color(0.1, 1.0, 0.9))
 	holder.add_child(lines)
 	return holder
+
+
+## True when this node is a junction (3+ ways meet) — where a car must choose.
+func is_junction(cell: Vector2i) -> bool:
+	return nodes.has(cell) and ((nodes[cell] as Dictionary).links as Array).size() >= 3
+
+
+## In-world overlay for eyeballing the road map: a yellow arrow on the road for every
+## link (so you can see which cells are road, how they connect, and which way you can
+## travel), plus a magenta marker at each junction (where a car must choose). Built once
+## and toggled in game; bright/unshaded so it reads against the dark asphalt.
+func build_arrow_overlay() -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "RoadMapOverlay"
+
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	for cell: Vector2i in nodes:
+		var nd: Dictionary = nodes[cell]
+		var c: Vector3 = nd.pos + Vector3(0, 0.15, 0)
+		for n: Vector2i in (nd.links as Array[Vector2i]):
+			var d := Vector3(n.x - cell.x, 0.0, n.y - cell.y).normalized()
+			var tail := c - d * 0.12
+			var tip := c + d * 0.40
+			var barb_l := d.rotated(Vector3.UP, deg_to_rad(150.0)) * 0.15
+			var barb_r := d.rotated(Vector3.UP, deg_to_rad(-150.0)) * 0.15
+			im.surface_add_vertex(tail); im.surface_add_vertex(tip)
+			im.surface_add_vertex(tip); im.surface_add_vertex(tip + barb_l)
+			im.surface_add_vertex(tip); im.surface_add_vertex(tip + barb_r)
+	im.surface_end()
+	var arrows := MeshInstance3D.new()
+	arrows.mesh = im
+	arrows.material_override = _unshaded(Color(1.0, 0.9, 0.1))
+	holder.add_child(arrows)
+
+	var box := BoxMesh.new()
+	box.size = Vector3(0.3, 0.08, 0.3)
+	box.material = _unshaded(Color(1.0, 0.2, 0.7))
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = box
+	var js: Array[Vector3] = []
+	for cell: Vector2i in nodes:
+		if is_junction(cell):
+			js.append((nodes[cell] as Dictionary).pos + Vector3(0, 0.16, 0))
+	mm.instance_count = js.size()
+	for i in js.size():
+		mm.set_instance_transform(i, Transform3D(Basis(), js[i]))
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	holder.add_child(mmi)
+	return holder
+
+
+static func _unshaded(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return m

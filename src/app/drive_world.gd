@@ -118,6 +118,7 @@ var _on_foot := true   # the player starts as a pedestrian; false = sitting in t
 var _ped_spawn := Vector3.ZERO
 var _pause: PauseMenu
 var _traffic: TrafficManager
+var _road_overlay: Node3D
 
 var _map: GTA1Map
 var _water_tile := -1
@@ -186,13 +187,12 @@ func _ready() -> void:
 	_ped.global_position = _ped_spawn
 	_yaw = atan2(-float(spawn_dir.x), -float(spawn_dir.y))
 
-	# Ambient traffic: derive the road network from the road tiles (GTA1 stored no
-	# lane network) and let a full-physics fleet drive it near where the player starts.
-	# Each car is a Car with an AI at the wheel, so it freezes with the tree on pause.
+	# Road map. Traffic is being reworked (hybrid), so for now we don't spawn cars —
+	# instead we draw the derived road network in-world as direction arrows (toggle [G])
+	# so the map and its connectivity can be checked before driving is built on it.
 	var road := RoadGraph.build(map)
-	_traffic = TrafficManager.new()
-	add_child(_traffic)
-	_traffic.populate(road, 20, spawn_cell, 45)
+	_road_overlay = road.build_arrow_overlay()
+	add_child(_road_overlay)
 
 	_cam = Camera3D.new()
 	_cam.fov = 70.0
@@ -254,7 +254,7 @@ func _update_hud() -> void:
 	if _hud == null:
 		return
 	if _fly:
-		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  mouse look  ·  [F] back"
+		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  [G] road map  ·  [F] back"
 	elif _on_foot:
 		_hud.text = "ON FOOT  ·  WASD move  ·  Shift run  ·  mouse look  ·  [Enter] get in car  ·  [F] fly  ·  [Esc] menu"
 	else:
@@ -509,6 +509,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_F:
 			_set_fly(not _fly)
+		elif event.physical_keycode == KEY_G:
+			if _road_overlay != null:
+				_road_overlay.visible = not _road_overlay.visible
 		elif event.physical_keycode == KEY_C:
 			_cycle_car()
 		elif event.physical_keycode == KEY_ENTER or event.physical_keycode == KEY_KP_ENTER:
