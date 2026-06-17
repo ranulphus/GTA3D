@@ -33,10 +33,10 @@ func _go() -> void:
 	var on_road := 0
 	var spans := []
 	for i in tm.cars.size():
-		var c: TrafficCar = tm.cars[i]
+		var c: TrafficDriver = tm.cars[i]
 		var cx := int(floor(c.global_position.x))
 		var cy := int(floor(c.global_position.z))
-		if cx >= 0 and cy >= 0 and cx < DIM and cy < DIM and g.surface_z[cx * DIM + cy] >= 0:
+		if g.is_drivable(Vector2i(cx, cy)):
 			on_road += 1
 		var s: Vector2 = maxs[i] - mins[i]
 		spans.append(maxf(s.x, s.y))

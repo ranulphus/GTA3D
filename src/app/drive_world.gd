@@ -187,12 +187,12 @@ func _ready() -> void:
 	_yaw = atan2(-float(spawn_dir.x), -float(spawn_dir.y))
 
 	# Ambient traffic: derive the road network from the road tiles (GTA1 stored no
-	# lane network) and let a fleet wander it near where the player starts. The cars
-	# self-drive from their own _physics_process and freeze with the tree on pause.
+	# lane network) and let a full-physics fleet drive it near where the player starts.
+	# Each car is a Car with an AI at the wheel, so it freezes with the tree on pause.
 	var road := RoadGraph.build(map)
 	_traffic = TrafficManager.new()
 	add_child(_traffic)
-	_traffic.populate(road, 30, spawn_cell, 45)
+	_traffic.populate(road, 20, spawn_cell, 45)
 
 	_cam = Camera3D.new()
 	_cam.fov = 70.0

@@ -1,14 +1,11 @@
 class_name TrafficManager
 extends Node3D
 
-## Spawns and owns the ambient traffic fleet on a RoadGraph. This first cut simply
-## populates a fixed number of cars on random through-streets near a point and lets
-## each drive itself; per-player streaming (spawn just out of view, despawn when far,
-## recycle) is the next step once the driving reads right.
-##
-## In game each TrafficCar self-drives from its own _physics_process. tick(delta) is
-## here only so a test can step the whole fleet deterministically (cars spawned with
-## auto = false).
+## Spawns and owns the ambient traffic fleet on a RoadGraph. Each car is a full-physics
+## TrafficDriver (a Car with an AI at the wheel), placed on a through-street facing its
+## first leg and left to drive itself. This first cut populates a fixed number near a
+## point; per-player streaming (spawn just out of view, despawn when far, recycle) is
+## the next step.
 
 ## (model_path, texture_path) pairs — the committed PSX cars, minus car1 (the player's).
 const MODELS := [
@@ -21,14 +18,13 @@ const MODELS := [
 ]
 
 var graph: RoadGraph
-var cars: Array[TrafficCar] = []
+var cars: Array[TrafficDriver] = []
 var _rng := RandomNumberGenerator.new()
 
 
 ## Spawn `count` cars on through-streets (nodes with 2+ links). If `near` is a real
-## cell, only cells within `radius` (Chebyshev) are eligible. `auto` toggles whether
-## the cars self-drive (game) or wait to be stepped via tick() (tests).
-func populate(road: RoadGraph, count: int, near := Vector2i(-1, -1), radius := 50, auto := true) -> void:
+## cell, only cells within `radius` (Chebyshev) are eligible.
+func populate(road: RoadGraph, count: int, near := Vector2i(-1, -1), radius := 50) -> void:
 	graph = road
 	var candidates: Array[Vector2i] = []
 	for cell: Vector2i in graph.nodes:
@@ -41,31 +37,32 @@ func populate(road: RoadGraph, count: int, near := Vector2i(-1, -1), radius := 5
 		push_warning("TrafficManager: no spawn cells found")
 		return
 	candidates.shuffle()
-	var used := {}
 	var made := 0
 	for cell in candidates:
 		if made >= count:
 			break
-		if used.has(cell):
-			continue
-		used[cell] = true
-		_spawn(cell, auto)
+		_spawn(cell)
 		made += 1
 
 
-func _spawn(cell: Vector2i, auto: bool) -> void:
-	var car := TrafficCar.new()
+func _spawn(cell: Vector2i) -> void:
+	var car := TrafficDriver.new()
 	var pair: Array = MODELS[_rng.randi() % MODELS.size()]
 	car.model_path = pair[0]
 	car.texture_path = pair[1]
 	car.graph = graph
 	car.start_cell = cell
-	car.auto = auto
 	add_child(car)
+
+	# Drop it on the road facing a neighbour (Car's hood is -Z, which Basis.looking_at
+	# aims at the given direction). A little height so it settles onto its wheels.
+	var node: Dictionary = graph.nodes[cell]
+	var links: Array = node.links
+	var dir := Vector3(0, 0, 1)
+	if not links.is_empty():
+		var nb: Vector2i = links[_rng.randi() % links.size()]
+		var d := Vector3(nb.x - cell.x, 0.0, nb.y - cell.y)
+		if d.length() > 0.01:
+			dir = d.normalized()
+	car.global_transform = Transform3D(Basis.looking_at(dir, Vector3.UP), node.pos + Vector3(0, 0.3, 0))
 	cars.append(car)
-
-
-## Step every car once — tests only (cars spawned with auto = false).
-func tick(delta: float) -> void:
-	for c in cars:
-		c.tick(delta)

@@ -28,18 +28,63 @@ const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), 
 var nodes := {}
 ## Per-cell road surface stack level, or -1; indexed [x * DIM + y].
 var surface_z := PackedInt32Array()
+## Per-cell "can a car be here" flag: any flush ground (road, sidewalk, plaza), but not
+## buildings or water. GTA1's kerbs are flush, so a car can spill onto the ground beside
+## a narrow road to corner; this is the wider corridor the cars are allowed to use, and
+## what tells a knocked-off car it has truly left the drivable surface.
+var drivable := PackedByteArray()
 
 
 static func build(map: GTA1Map) -> RoadGraph:
 	var g := RoadGraph.new()
+	var water := WaterBuilder.detect_water_tile(map)
 
-	# Pass 1: road mask + surface height per cell.
-	g.surface_z.resize(DIM * DIM)
+	# Pass 1: per-cell surface (topmost solid, non-flat block) — its type, lid tile,
+	# height, and whether a flat decal sits above it. GTA1's block_type 0 is ALL ground
+	# (roads, sidewalks, courtyards, river beds), so type alone can't tell a street from
+	# a plaza or the harbour. The giveaway is the surface TILE: the carriageway uses a
+	# small set of asphalt tiles, and lane-marking decals (flat blocks) ride on them.
+	var s_type := PackedInt32Array(); s_type.resize(DIM * DIM)
+	var s_lid := PackedInt32Array(); s_lid.resize(DIM * DIM)
+	var s_z := PackedInt32Array(); s_z.resize(DIM * DIM)
+	var s_decal := PackedByteArray(); s_decal.resize(DIM * DIM)
 	for x in DIM:
 		for y in DIM:
-			g.surface_z[x * DIM + y] = _road_surface_z(map, x, y)
+			var i := x * DIM + y
+			s_type[i] = -1; s_lid[i] = 0; s_z[i] = -1; s_decal[i] = 0
+			var n := map.get_num_blocks(x, y)
+			var sz := -1
+			for z in range(n - 1, -1, -1):
+				var b := map.get_block(x, y, z)
+				if b == null or b.is_empty() or b.is_flat():
+					continue
+				sz = z; s_type[i] = b.block_type(); s_lid[i] = b.lid
+				break
+			if sz < 0:
+				continue
+			s_z[i] = sz
+			for z in range(sz + 1, n):   # a flat (decal) block above the surface?
+				var b := map.get_block(x, y, z)
+				if b != null and not b.is_empty() and b.is_flat():
+					s_decal[i] = 1
+					break
 
-	# Pass 2: a node per road cell, linked to road neighbours within one step.
+	# Derive the carriageway tile set: among road-type surfaces wearing a decal, the
+	# lids that ride under markings, biggest first, stopping at the first sharp drop.
+	var counts := {}
+	for i in DIM * DIM:
+		if s_type[i] == ROAD_TYPE and s_decal[i] == 1 and s_lid[i] != water and s_lid[i] > 0:
+			counts[s_lid[i]] = counts.get(s_lid[i], 0) + 1
+	var asphalt := _derive_asphalt(counts)
+
+	# Pass 2: a node per carriageway cell, linked to neighbours within one height step.
+	# Also flag every flush ground cell (road/sidewalk/plaza, not building or water) as
+	# drivable — the wider corridor cars may spill into when cornering.
+	g.surface_z.resize(DIM * DIM)
+	g.drivable.resize(DIM * DIM)
+	for i in DIM * DIM:
+		g.surface_z[i] = s_z[i] if (s_type[i] == ROAD_TYPE and asphalt.has(s_lid[i])) else -1
+		g.drivable[i] = 1 if ((s_type[i] == 0 or s_type[i] == 4) and s_lid[i] != water and s_z[i] >= 0) else 0
 	for x in DIM:
 		for y in DIM:
 			var z := g.surface_z[x * DIM + y]
@@ -62,20 +107,36 @@ static func build(map: GTA1Map) -> RoadGraph:
 	return g
 
 
-## Stack level of the topmost solid, non-flat ROAD block at (x, y), or -1 when the
-## surface there is something a car can't be on (roof, field, water, bridge deck).
-static func _road_surface_z(map: GTA1Map, x: int, y: int) -> int:
-	var n := map.get_num_blocks(x, y)
-	for z in range(n - 1, -1, -1):
-		var b := map.get_block(x, y, z)
-		if b == null or b.is_empty() or b.is_flat():
-			continue
-		return z if b.block_type() == ROAD_TYPE else -1
-	return -1
+## Pick the carriageway tiles from a lid->count histogram (counts of road-type cells
+## wearing a marking decal): take the most common, then keep adding while each next is
+## at least half the previous, and stop at the first sharp drop. That isolates the one
+## or two asphalt tiles from the long tail of incidental decalled surfaces.
+static func _derive_asphalt(counts: Dictionary) -> Dictionary:
+	var lids: Array = counts.keys()
+	lids.sort_custom(func(a, b): return counts[a] > counts[b])
+	var set := {}
+	var prev := 0
+	for lid in lids:
+		var c: int = counts[lid]
+		if set.is_empty():
+			set[lid] = true; prev = c
+		elif c >= prev / 2 and set.size() < 4:
+			set[lid] = true; prev = c
+		else:
+			break
+	return set
 
 
 func is_road(cell: Vector2i) -> bool:
 	return nodes.has(cell)
+
+
+## Is this cell flush ground a car may be on (road or the ground beside it)? Used to
+## tell a knocked-off car when it has genuinely left the drivable surface.
+func is_drivable(cell: Vector2i) -> bool:
+	if cell.x < 0 or cell.y < 0 or cell.x >= DIM or cell.y >= DIM:
+		return false
+	return drivable[cell.x * DIM + cell.y] == 1
 
 
 ## A wireframe of the network for top-down inspection: a line per edge, raised just
