@@ -1,20 +1,27 @@
 class_name TrafficCar
 extends AnimatableBody3D
 
-## An ambient traffic car: a kinematic body that follows the RoadGraph centre-line
-## network, hugging the right-hand lane and taking a (non-reversing) turn at each
-## junction — the way GTA1's ambient cars wandered the streets. It's an
-## AnimatableBody3D with sync_to_physics so the player's RigidBody car collides with
-## it and can shunt it, while it stays cheap and stable at fleet scale (no per-car
-## vehicle physics).
+## An ambient traffic car: a kinematic body that drives the RoadGraph, the way GTA1's
+## ambient cars wandered the streets — it keeps going STRAIGHT down a road and only
+## turns at a genuine junction or dead end. (Turning at random instead traps cars
+## orbiting tiny loops on wide multi-cell roads.) It's an AnimatableBody3D so the
+## player's RigidBody car collides with and can shunt it, while staying cheap and
+## stable at fleet scale.
 ##
-## The path logic lives in tick(delta) so it can be stepped deterministically from a
-## test; in game _physics_process drives it. Reuses the PSX car .obj meshes.
+## Two transform quirks of a physics-managed body, both worked around here:
+##  * we keep our own authoritative _pos (the global_position getter lags our writes
+##    by a frame once physics is live, so the car would crawl off from the origin);
+##  * we face travel by rotating the MODEL child, not the body (setting the body's
+##    rotation doesn't stick — it reads back as 0).
+##
+## The path logic lives in tick(delta) so a test can step it deterministically.
 
 const SPEED := 3.2            # units/s cruise
-const TURN_RATE := 7.0        # rad/s the body swings to face travel
-const LANE_OFFSET := 0.22     # right of the centre-line (right-hand drive)
-const ARRIVE := 0.10          # distance at which a waypoint counts as reached
+const TURN_RATE := 9.0        # rad/s the model swings to face travel
+const LANE_OFFSET := 0.26     # right of the cell centre-line (right-hand drive)
+const ARRIVE := 0.12          # distance at which the target cell counts as reached
+const STRAIGHT_BIAS := 0.9    # chance of going straight on at a junction (high, so cars
+                              # commit to a street instead of weaving across wide roads)
 const TARGET_WIDTH := 0.5     # match Car: scale the model to ~half a cell wide
 const Y_LERP := 8.0           # how fast height eases onto ramps/steps
 
@@ -26,35 +33,29 @@ const Y_LERP := 8.0           # how fast height eases onto ramps/steps
 var graph: RoadGraph
 var start_cell := Vector2i.ZERO
 
-var _cell: Vector2i
-var _prev: Vector2i
-var _next: Vector2i
+var _cell: Vector2i           # cell we're driving away from
+var _heading := Vector2i(1, 0)
+var _target: Vector2i         # cell we're driving toward (_cell + _heading)
 var _yaw := 0.0
-## Authoritative position. We never read it back from global_position: this body's
-## transform is physics-managed, so once the physics server is live the getter lags
-## our writes by a frame and the car would crawl away from the origin.
-var _pos := Vector3.ZERO
+var _pos := Vector3.ZERO       # authoritative position (see class note)
+var _model: Node3D
 var _rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
-	# Driven kinematically: we set global_position every physics frame. An
-	# AnimatableBody3D moved this way still collides with and shoves the player's
-	# RigidBody car (moving-platform behaviour). We deliberately leave sync_to_physics
-	# off — with it on, the physics-body transform doesn't track our direct writes and
-	# the car's visible position drifts away from its logical lane position.
 	_build_model()
 	_build_collision()
+	if graph == null or not graph.nodes.has(start_cell):
+		return
 	_cell = start_cell
-	_prev = start_cell
-	_pick_next()
+	_heading = _initial_heading()
+	_target = _cell + _heading
 	_pos = _node_pos(_cell)
 	global_position = _pos
-	# Face the first leg immediately so it doesn't spin on spawn.
-	var f := Vector3(_waypoint().x - _pos.x, 0.0, _waypoint().z - _pos.z)
-	if f.length() > 0.01:
-		_yaw = atan2(f.x, f.z)
-		rotation.y = _yaw
+	var dir := _world_dir()
+	_yaw = atan2(dir.x, dir.z)
+	if _model != null:
+		_model.rotation.y = _yaw
 
 
 func _physics_process(delta: float) -> void:
@@ -62,7 +63,7 @@ func _physics_process(delta: float) -> void:
 		tick(delta)
 
 
-## Advance one step along the lane. Public so tests can drive it directly.
+## Advance one step along the road. Public so tests can drive it directly.
 func tick(delta: float) -> void:
 	if graph == null or not graph.nodes.has(_cell):
 		return
@@ -71,9 +72,7 @@ func tick(delta: float) -> void:
 	var dist := flat.length()
 
 	if dist < ARRIVE:
-		_prev = _cell
-		_cell = _next
-		_pick_next()
+		_advance()
 		wp = _waypoint()
 		flat = Vector3(wp.x - _pos.x, 0.0, wp.z - _pos.z)
 		dist = flat.length()
@@ -83,38 +82,59 @@ func tick(delta: float) -> void:
 		_pos += dir * minf(SPEED * delta, dist)
 		var target_yaw := atan2(dir.x, dir.z)
 		_yaw = lerp_angle(_yaw, target_yaw, clampf(TURN_RATE * delta, 0.0, 1.0))
-		rotation.y = _yaw
+		if _model != null:
+			_model.rotation.y = _yaw
 	_pos.y = lerpf(_pos.y, wp.y, clampf(Y_LERP * delta, 0.0, 1.0))
 	global_position = _pos
 
 
-## World point this car is steering for: the next node, nudged into the right lane.
+## Reached _target: step onto it and choose where to head next.
+func _advance() -> void:
+	_cell = _target
+	_heading = _choose_heading()
+	_target = _cell + _heading
+
+
+## Prefer to keep the current heading; otherwise pick among the turns available at
+## this cell (never reversing unless it's a dead end).
+func _choose_heading() -> Vector2i:
+	var links: Array = (graph.nodes[_cell] as Dictionary).links
+	var avail: Array[Vector2i] = []
+	for nb: Vector2i in links:
+		var d := nb - _cell
+		if d == -_heading:
+			continue                       # don't U-turn
+		avail.append(d)
+	if avail.is_empty():
+		return -_heading                   # dead end: turn back
+	if avail.has(_heading) and _rng.randf() < STRAIGHT_BIAS:
+		return _heading
+	return avail[_rng.randi() % avail.size()]
+
+
+func _initial_heading() -> Vector2i:
+	var links: Array = (graph.nodes[_cell] as Dictionary).links
+	if links.is_empty():
+		return Vector2i(1, 0)
+	var nb: Vector2i = links[_rng.randi() % links.size()]
+	return nb - _cell
+
+
+## World point this car steers for: the target cell centre, nudged into the right lane.
 func _waypoint() -> Vector3:
-	var a := _node_pos(_cell)
-	var b := _node_pos(_next)
-	var dir := Vector3(b.x - a.x, 0.0, b.z - a.z)
-	if dir.length() < 0.001:
-		return b
-	dir = dir.normalized()
+	var t: Vector3 = _node_pos(_target) if graph.nodes.has(_target) else _node_pos(_cell)
+	var dir := _world_dir()
 	var right := Vector3(dir.z, 0.0, -dir.x)   # right-hand side of travel
-	return b + right * LANE_OFFSET
+	return t + right * LANE_OFFSET
+
+
+func _world_dir() -> Vector3:
+	var d := Vector3(_heading.x, 0.0, _heading.y)
+	return d.normalized() if d.length() > 0.001 else Vector3(0, 0, 1)
 
 
 func _node_pos(cell: Vector2i) -> Vector3:
 	return (graph.nodes[cell] as Dictionary).pos
-
-
-## Choose the next cell: any link except the one we came from (no instant U-turn);
-## at a dead end, turning back is allowed.
-func _pick_next() -> void:
-	var links: Array = (graph.nodes[_cell] as Dictionary).links
-	var opts: Array = links.filter(func(c: Vector2i) -> bool: return c != _prev)
-	if opts.is_empty():
-		opts = links
-	if opts.is_empty():
-		_next = _cell
-		return
-	_next = opts[_rng.randi() % opts.size()]
 
 
 func _build_collision() -> void:
@@ -155,6 +175,7 @@ func _build_model() -> void:
 			mat.roughness = 1.0
 			body.material_override = mat
 	add_child(body)
+	_model = body
 
 
 func _first_mesh(n: Node) -> MeshInstance3D:
