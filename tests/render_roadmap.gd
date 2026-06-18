@@ -13,19 +13,19 @@ func _go() -> void:
 
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = 30
+	cam.size = 50
 	cam.far = 4000.0
 	world.add_child(cam)
 	cam.current = true
-	var cx := 125.0
-	var cz := 140.0
+	var cx := 116.0
+	var cz := 150.0
 	cam.look_at_from_position(Vector3(cx, 120, cz + 0.01), Vector3(cx, 0, cz), Vector3.UP)
 	for i in 8: await process_frame
 	root.get_texture().get_image().save_png(OUT + "roadmap_top.png")
 
 	cam.projection = Camera3D.PROJECTION_PERSPECTIVE
 	cam.fov = 60
-	cam.look_at_from_position(Vector3(cx - 14, 12, cz + 14), Vector3(cx, 1, cz), Vector3.UP)
+	cam.look_at_from_position(Vector3(cx - 18, 16, cz + 18), Vector3(cx, 4, cz), Vector3.UP)
 	for i in 6: await process_frame
 	root.get_texture().get_image().save_png(OUT + "roadmap_angle.png")
 	print("rendered road map")

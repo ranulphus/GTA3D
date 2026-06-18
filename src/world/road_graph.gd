@@ -18,6 +18,7 @@ extends RefCounted
 ## surface block's stack level z puts the drivable top at world Y = z + 1.
 
 const ROAD_TYPE := 0          # block_type for road/ground
+const BUILDING_TYPE := 5      # block_type for buildings (excluded from roads)
 const MAX_STEP := 1           # stack levels two road cells may differ and still link
 const DIM := GTA1Map.DIM
 const LANE_OFFSET := 0.22     # how far right of centre a lane sits (drive-on-the-right)
@@ -88,7 +89,11 @@ static func build(map: GTA1Map) -> RoadGraph:
 	g.surface_z.resize(DIM * DIM)
 	g.drivable.resize(DIM * DIM)
 	for i in DIM * DIM:
-		g.surface_z[i] = s_z[i] if (s_type[i] == ROAD_TYPE and ROAD_TILES.has(s_lid[i])) else -1
+		# A cell is road if its surface wears a carriageway tile. We classify by TILE,
+		# not block_type: bridges/overpasses and their ramps are block_type 2 (not 0),
+		# so requiring road-type here dropped every bridge. Only buildings (type 5) are
+		# excluded, to reject the handful of roof edges that reuse a road tile.
+		g.surface_z[i] = s_z[i] if (ROAD_TILES.has(s_lid[i]) and s_type[i] != BUILDING_TYPE) else -1
 		g.drivable[i] = 1 if ((s_type[i] == 0 or s_type[i] == 4) and s_lid[i] != water and s_z[i] >= 0) else 0
 	for x in DIM:
 		for y in DIM:
