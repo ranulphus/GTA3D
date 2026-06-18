@@ -20,6 +20,26 @@ extends RefCounted
 const ROAD_TYPE := 0          # block_type for road/ground
 const MAX_STEP := 1           # stack levels two road cells may differ and still link
 const DIM := GTA1Map.DIM
+const LANE_OFFSET := 0.22     # how far right of centre a lane sits (drive-on-the-right)
+
+## The carriageway LID tiles for NYC (STYLE001), identified by eye from the swatch
+## sheets — full road surfaces incl. 90-degree turns and the SLOW markings (133-135).
+## NOT laybys (38/51/54/60/61/62 — never driven) or pavement (8/9). Tile indices are
+## per-style, so MIAMI/SANB will need their own sets.
+const ROAD_TILES := {
+	1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 13: true, 16: true, 23: true,
+	24: true, 25: true, 70: true, 74: true, 75: true, 76: true, 80: true, 81: true,
+	82: true, 89: true, 90: true, 119: true, 120: true, 122: true, 133: true, 134: true,
+	135: true,
+}
+
+
+## The right-hand side of a horizontal travel direction, in world axes (map x -> +X,
+## map y -> +Z). Facing +X (east) the right hand points +Z (south); facing +Z (south)
+## it points -X (west) — i.e. US drive-on-the-right. Cars and the overlay both offset
+## their lane by LANE_OFFSET along this.
+static func right_of(d: Vector3) -> Vector3:
+	return Vector3(-d.z, 0.0, d.x)
 
 ## 4-neighbour offsets in map (x, y).
 const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
@@ -39,43 +59,28 @@ static func build(map: GTA1Map) -> RoadGraph:
 	var g := RoadGraph.new()
 	var water := WaterBuilder.detect_water_tile(map)
 
-	# Pass 1: per-cell surface (topmost solid, non-flat block) — its type, lid tile,
-	# height, and whether a flat decal sits above it. GTA1's block_type 0 is ALL ground
-	# (roads, sidewalks, courtyards, river beds), so type alone can't tell a street from
-	# a plaza or the harbour. The giveaway is the surface TILE: the carriageway uses a
-	# small set of asphalt tiles, and lane-marking decals (flat blocks) ride on them.
+	# Pass 1: per-cell surface (topmost solid, non-flat block) — its type, lid tile, and
+	# height. GTA1's block_type 0 is ALL ground (roads, sidewalks, courtyards, river
+	# beds), so type alone can't tell a road from a sidewalk. The giveaway is shape: the
+	# CARRIAGEWAY is wide (several cells), while sidewalks are 1-cell strips along the
+	# buildings. So we classify by surface TILE, picking the tiles that mostly appear in
+	# wide blocks — see _derive_road_tiles. (Picking the common decalled tile instead
+	# wrongly chose the sidewalk, since markings are sparse but pavement is everywhere.)
 	var s_type := PackedInt32Array(); s_type.resize(DIM * DIM)
 	var s_lid := PackedInt32Array(); s_lid.resize(DIM * DIM)
 	var s_z := PackedInt32Array(); s_z.resize(DIM * DIM)
-	var s_decal := PackedByteArray(); s_decal.resize(DIM * DIM)
 	for x in DIM:
 		for y in DIM:
 			var i := x * DIM + y
-			s_type[i] = -1; s_lid[i] = 0; s_z[i] = -1; s_decal[i] = 0
+			s_type[i] = -1; s_lid[i] = 0; s_z[i] = -1
 			var n := map.get_num_blocks(x, y)
-			var sz := -1
 			for z in range(n - 1, -1, -1):
 				var b := map.get_block(x, y, z)
 				if b == null or b.is_empty() or b.is_flat():
 					continue
-				sz = z; s_type[i] = b.block_type(); s_lid[i] = b.lid
+				s_type[i] = b.block_type(); s_lid[i] = b.lid; s_z[i] = z
 				break
-			if sz < 0:
-				continue
-			s_z[i] = sz
-			for z in range(sz + 1, n):   # a flat (decal) block above the surface?
-				var b := map.get_block(x, y, z)
-				if b != null and not b.is_empty() and b.is_flat():
-					s_decal[i] = 1
-					break
 
-	# Derive the carriageway tile set: among road-type surfaces wearing a decal, the
-	# lids that ride under markings, biggest first, stopping at the first sharp drop.
-	var counts := {}
-	for i in DIM * DIM:
-		if s_type[i] == ROAD_TYPE and s_decal[i] == 1 and s_lid[i] != water and s_lid[i] > 0:
-			counts[s_lid[i]] = counts.get(s_lid[i], 0) + 1
-	var asphalt := _derive_asphalt(counts)
 
 	# Pass 2: a node per carriageway cell, linked to neighbours within one height step.
 	# Also flag every flush ground cell (road/sidewalk/plaza, not building or water) as
@@ -83,7 +88,7 @@ static func build(map: GTA1Map) -> RoadGraph:
 	g.surface_z.resize(DIM * DIM)
 	g.drivable.resize(DIM * DIM)
 	for i in DIM * DIM:
-		g.surface_z[i] = s_z[i] if (s_type[i] == ROAD_TYPE and asphalt.has(s_lid[i])) else -1
+		g.surface_z[i] = s_z[i] if (s_type[i] == ROAD_TYPE and ROAD_TILES.has(s_lid[i])) else -1
 		g.drivable[i] = 1 if ((s_type[i] == 0 or s_type[i] == 4) and s_lid[i] != water and s_z[i] >= 0) else 0
 	for x in DIM:
 		for y in DIM:
@@ -105,26 +110,6 @@ static func build(map: GTA1Map) -> RoadGraph:
 				"links": links,
 			}
 	return g
-
-
-## Pick the carriageway tiles from a lid->count histogram (counts of road-type cells
-## wearing a marking decal): take the most common, then keep adding while each next is
-## at least half the previous, and stop at the first sharp drop. That isolates the one
-## or two asphalt tiles from the long tail of incidental decalled surfaces.
-static func _derive_asphalt(counts: Dictionary) -> Dictionary:
-	var lids: Array = counts.keys()
-	lids.sort_custom(func(a, b): return counts[a] > counts[b])
-	var set := {}
-	var prev := 0
-	for lid in lids:
-		var c: int = counts[lid]
-		if set.is_empty():
-			set[lid] = true; prev = c
-		elif c >= prev / 2 and set.size() < 4:
-			set[lid] = true; prev = c
-		else:
-			break
-	return set
 
 
 func is_road(cell: Vector2i) -> bool:
@@ -176,15 +161,18 @@ func build_arrow_overlay() -> Node3D:
 	var holder := Node3D.new()
 	holder.name = "RoadMapOverlay"
 
+	# One arrow per DIRECTED link, offset to the right of travel (US drive-on-the-right):
+	# a two-way street then shows two opposing arrow lines, one on each side, like lanes.
 	var im := ImmediateMesh.new()
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	for cell: Vector2i in nodes:
 		var nd: Dictionary = nodes[cell]
-		var c: Vector3 = nd.pos + Vector3(0, 0.15, 0)
+		var c: Vector3 = nd.pos
 		for n: Vector2i in (nd.links as Array[Vector2i]):
 			var d := Vector3(n.x - cell.x, 0.0, n.y - cell.y).normalized()
-			var tail := c - d * 0.12
-			var tip := c + d * 0.40
+			var base := c + Vector3(0, 0.15, 0) + right_of(d) * LANE_OFFSET
+			var tail := base - d * 0.10
+			var tip := base + d * 0.42
 			var barb_l := d.rotated(Vector3.UP, deg_to_rad(150.0)) * 0.15
 			var barb_r := d.rotated(Vector3.UP, deg_to_rad(-150.0)) * 0.15
 			im.surface_add_vertex(tail); im.surface_add_vertex(tip)

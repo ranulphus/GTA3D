@@ -13,12 +13,12 @@ func _go() -> void:
 
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = 48
+	cam.size = 30
 	cam.far = 4000.0
 	world.add_child(cam)
 	cam.current = true
-	var cx := 110.0
-	var cz := 132.0
+	var cx := 125.0
+	var cz := 140.0
 	cam.look_at_from_position(Vector3(cx, 120, cz + 0.01), Vector3(cx, 0, cz), Vector3.UP)
 	for i in 8: await process_frame
 	root.get_texture().get_image().save_png(OUT + "roadmap_top.png")

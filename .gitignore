@@ -9,6 +9,9 @@
 /build/
 /_dump/
 
+# Tile swatch sheets rendered from the GTA1 style (derived copyright art, NEVER commit)
+tile_swatches*.png
+
 # OS / editor cruft
 .DS_Store
 *.tmp
