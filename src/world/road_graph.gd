@@ -49,6 +49,8 @@ const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), 
 var nodes := {}
 ## Per-cell road surface stack level, or -1; indexed [x * DIM + y].
 var surface_z := PackedInt32Array()
+## Per-cell surface lid tile (any ground, not just road) — for the in-game inspector.
+var surface_lid := PackedInt32Array()
 ## Per-cell "can a car be here" flag: any flush ground (road, sidewalk, plaza), but not
 ## buildings or water. GTA1's kerbs are flush, so a car can spill onto the ground beside
 ## a narrow road to corner; this is the wider corridor the cars are allowed to use, and
@@ -88,6 +90,7 @@ static func build(map: GTA1Map) -> RoadGraph:
 	# drivable — the wider corridor cars may spill into when cornering.
 	g.surface_z.resize(DIM * DIM)
 	g.drivable.resize(DIM * DIM)
+	g.surface_lid = s_lid
 	for i in DIM * DIM:
 		# A cell is road if its surface wears a carriageway tile. We classify by TILE,
 		# not block_type: bridges/overpasses and their ramps are block_type 2 (not 0),
@@ -119,6 +122,13 @@ static func build(map: GTA1Map) -> RoadGraph:
 
 func is_road(cell: Vector2i) -> bool:
 	return nodes.has(cell)
+
+
+## Surface lid tile at a cell (0 = none) — for the in-game tile inspector.
+func lid_at(cell: Vector2i) -> int:
+	if cell.x < 0 or cell.y < 0 or cell.x >= DIM or cell.y >= DIM:
+		return 0
+	return surface_lid[cell.x * DIM + cell.y]
 
 
 ## Is this cell flush ground a car may be on (road or the ground beside it)? Used to

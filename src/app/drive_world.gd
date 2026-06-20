@@ -119,6 +119,10 @@ var _ped_spawn := Vector3.ZERO
 var _pause: PauseMenu
 var _traffic: TrafficManager
 var _road_overlay: Node3D
+var _road: RoadGraph
+var _look: Label
+var _inspect := false
+var _inspect_marker: MeshInstance3D
 
 var _map: GTA1Map
 var _water_tile := -1
@@ -191,8 +195,10 @@ func _ready() -> void:
 	# instead we draw the derived road network in-world as direction arrows (toggle [G])
 	# so the map and its connectivity can be checked before driving is built on it.
 	var road := RoadGraph.build(map)
+	_road = road
 	_road_overlay = road.build_arrow_overlay()
 	add_child(_road_overlay)
+	_make_inspect_marker()
 
 	_cam = Camera3D.new()
 	_cam.fov = 70.0
@@ -218,6 +224,19 @@ func _add_hud() -> void:
 	# Live map-cell readout, so a spot can be reported by its (X, Y) coordinates.
 	_coords = _make_label(Vector2(14, 36))
 	layer.add_child(_coords)
+	# Tile inspector: what the centre of the screen is pointing at (cell, tile, road?).
+	_look = _make_label(Vector2(14, 62))
+	layer.add_child(_look)
+	# Centre crosshair so you know exactly which tile the readout refers to.
+	var cross := _make_label(Vector2.ZERO)
+	cross.text = "+"
+	cross.add_theme_font_size_override("font_size", 28)
+	cross.set_anchors_preset(Control.PRESET_CENTER)
+	cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cross.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	cross.grow_vertical = Control.GROW_DIRECTION_BOTH
+	layer.add_child(cross)
 	add_child(layer)
 	_update_hud()
 
@@ -229,6 +248,67 @@ func _make_label(pos: Vector2) -> Label:
 	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 	lbl.add_theme_constant_override("outline_size", 6)
 	return lbl
+
+
+## A flat translucent quad that highlights the cell the inspector is reading, so a
+## tile can be picked unambiguously even with bridges/decks stacked at the same (x,y).
+func _make_inspect_marker() -> void:
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(1, 1)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.3, 0.0, 0.55)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test = true   # always visible, even under a deck
+	plane.material = mat
+	_inspect_marker = MeshInstance3D.new()
+	_inspect_marker.mesh = plane
+	_inspect_marker.visible = false
+	add_child(_inspect_marker)
+
+
+## Inspect mode ([I] in fly): free the mouse so you can point at any tile; the readout
+## and highlight follow the cursor (vs the screen centre when off).
+func _set_inspect(on: bool) -> void:
+	_inspect = on
+	if on:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		if _inspect_marker != null:
+			_inspect_marker.visible = false
+		_restore_mouse()
+	_update_hud()
+
+
+## Raycast from the crosshair (or the mouse, in inspect mode) to the surface and report
+## the cell, its tile and whether it's road — and highlight that exact tile.
+func _update_inspect() -> void:
+	if _look == null:
+		return
+	if not _fly or _cam == null or _road == null:
+		_look.text = ""
+		if _inspect_marker != null:
+			_inspect_marker.visible = false
+		return
+	var vp := get_viewport()
+	var sp := vp.get_mouse_position() if _inspect else (Vector2(vp.get_visible_rect().size) * 0.5)
+	var from := _cam.project_ray_origin(sp)
+	var to := from + _cam.project_ray_normal(sp) * 1000.0
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		_look.text = "look: —"
+		if _inspect_marker != null:
+			_inspect_marker.visible = false
+		return
+	var p: Vector3 = hit.position
+	var cell := Vector2i(int(floor(p.x)), int(floor(p.z)))
+	var lid := _road.lid_at(cell)
+	var on_road := _road.is_road(cell)
+	_look.text = "look: (%d, %d)  tile %d  %s" % [cell.x, cell.y, lid, "ROAD" if on_road else "not road"]
+	if _inspect_marker != null:
+		_inspect_marker.visible = true
+		_inspect_marker.global_position = Vector3(cell.x + 0.5, p.y + 0.06, cell.y + 0.5)
 
 
 ## Show the current map cell (matches the X/Y used everywhere in the data). Uses
@@ -254,7 +334,7 @@ func _update_hud() -> void:
 	if _hud == null:
 		return
 	if _fly:
-		_hud.text = "FLY  ·  WASD/arrows move  ·  Q/E down/up  ·  Shift boost  ·  [G] road map  ·  [F] back"
+		_hud.text = "FLY  ·  WASD move  ·  Q/E down/up  ·  Shift boost  ·  [G] road map  ·  [I] inspect tile  ·  [F] back"
 	elif _on_foot:
 		_hud.text = "ON FOOT  ·  WASD move  ·  Shift run  ·  mouse look  ·  [Enter] get in car  ·  [F] fly  ·  [Esc] menu"
 	else:
@@ -487,6 +567,7 @@ func _exit_car() -> void:
 
 func _process(delta: float) -> void:
 	_update_coords()
+	_update_inspect()
 	if not _fly or _cam == null:
 		return
 	_cam.rotation = Vector3(_pitch, _yaw, 0.0)
@@ -512,6 +593,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.physical_keycode == KEY_G:
 			if _road_overlay != null:
 				_road_overlay.visible = not _road_overlay.visible
+		elif event.physical_keycode == KEY_I:
+			_set_inspect(not _inspect)
 		elif event.physical_keycode == KEY_C:
 			_cycle_car()
 		elif event.physical_keycode == KEY_ENTER or event.physical_keycode == KEY_KP_ENTER:
@@ -520,7 +603,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					_try_enter_car()
 				else:
 					_exit_car()
-	elif event is InputEventMouseMotion and (_fly or _on_foot):
+	elif event is InputEventMouseMotion and (_fly or _on_foot) and not _inspect:
 		_yaw -= event.relative.x * MOUSE_SENS
 		var lo := -1.4 if _fly else PED_PITCH_MIN
 		var hi := 1.4 if _fly else PED_PITCH_MAX
@@ -565,6 +648,10 @@ func _cycle_car() -> void:
 
 func _set_fly(on: bool) -> void:
 	_fly = on
+	if _inspect:               # inspect mode only lives inside fly mode
+		_inspect = false
+		if _inspect_marker != null:
+			_inspect_marker.visible = false
 	if car != null:
 		car.use_input = (not on) and (not _on_foot)
 		car.control_throttle = 0.0
