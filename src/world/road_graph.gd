@@ -17,8 +17,7 @@ extends RefCounted
 ## World mapping matches MapBuilder: map x -> world X, map y -> world Z, and the
 ## surface block's stack level z puts the drivable top at world Y = z + 1.
 
-const ROAD_TYPE := 0          # block_type for road/ground
-const BUILDING_TYPE := 5      # block_type for buildings (excluded from roads)
+const BUILDING_TYPE := 5      # block_type for buildings — a road sealed under one isn't drivable
 const MAX_STEP := 1           # stack levels two road cells may differ and still link
 const DIM := GTA1Map.DIM
 const LANE_OFFSET := 0.22     # how far right of centre a lane sits (drive-on-the-right)
@@ -60,7 +59,6 @@ var drivable := PackedByteArray()
 
 static func build(map: GTA1Map) -> RoadGraph:
 	var g := RoadGraph.new()
-	var water := WaterBuilder.detect_water_tile(map)
 
 	# Pass 1: per-cell surface (topmost solid, non-flat block) — its type, lid tile, and
 	# height. GTA1's block_type 0 is ALL ground (roads, sidewalks, courtyards, river
@@ -69,35 +67,52 @@ static func build(map: GTA1Map) -> RoadGraph:
 	# buildings. So we classify by surface TILE, picking the tiles that mostly appear in
 	# wide blocks — see _derive_road_tiles. (Picking the common decalled tile instead
 	# wrongly chose the sidewalk, since markings are sparse but pavement is everywhere.)
-	var s_type := PackedInt32Array(); s_type.resize(DIM * DIM)
+	# s_z = the level of the topmost DRIVABLE road block (a road tile with open space
+	# above it, so a car can reach it). Scanning past non-road decks this way finds the
+	# road UNDER a pedestrian walkway/overpass — whose deck (e.g. pavement) isn't road —
+	# while a road sealed under a solid building (no gap above) is correctly ignored.
+	# s_lid is that road tile when road, else the visible surface (for the inspector).
 	var s_lid := PackedInt32Array(); s_lid.resize(DIM * DIM)
 	var s_z := PackedInt32Array(); s_z.resize(DIM * DIM)
 	for x in DIM:
 		for y in DIM:
 			var i := x * DIM + y
-			s_type[i] = -1; s_lid[i] = 0; s_z[i] = -1
+			s_lid[i] = 0; s_z[i] = -1
 			var n := map.get_num_blocks(x, y)
+			var vis_lid := 0
+			var vis_set := false
 			for z in range(n - 1, -1, -1):
 				var b := map.get_block(x, y, z)
 				if b == null or b.is_empty() or b.is_flat():
 					continue
-				s_type[i] = b.block_type(); s_lid[i] = b.lid; s_z[i] = z
-				break
+				if not vis_set:
+					vis_lid = b.lid; vis_set = true   # topmost solid = visible surface
+				if ROAD_TILES.has(b.lid):
+					# Drivable unless a BUILDING block sits directly on it (sealed under a
+					# building). GTA1 walkway/overpass decks (block_type 2) sit right on the
+					# road they cross with no air gap, so a gap test would wrongly reject the
+					# road beneath them — only a building cap means truly not drivable.
+					var above := map.get_block(x, y, z + 1)
+					var capped := above != null and not above.is_empty() \
+						and not above.is_flat() and above.block_type() == BUILDING_TYPE
+					if not capped:
+						s_z[i] = z; s_lid[i] = b.lid
+						break
+			if s_z[i] < 0:
+				s_lid[i] = vis_lid
 
 
 	# Pass 2: a node per carriageway cell, linked to neighbours within one height step.
 	# Also flag every flush ground cell (road/sidewalk/plaza, not building or water) as
 	# drivable — the wider corridor cars may spill into when cornering.
-	g.surface_z.resize(DIM * DIM)
-	g.drivable.resize(DIM * DIM)
+	# s_z already holds the drivable-road level per cell (-1 = not road), classified by
+	# tile across any block_type. drivable is the road set for now (the wider-corridor
+	# ground mask is rebuilt when the traffic layer needs it; unused while traffic is off).
+	g.surface_z = s_z
 	g.surface_lid = s_lid
+	g.drivable.resize(DIM * DIM)
 	for i in DIM * DIM:
-		# A cell is road if its surface wears a carriageway tile. We classify by TILE,
-		# not block_type: bridges/overpasses and their ramps are block_type 2 (not 0),
-		# so requiring road-type here dropped every bridge. Only buildings (type 5) are
-		# excluded, to reject the handful of roof edges that reuse a road tile.
-		g.surface_z[i] = s_z[i] if (ROAD_TILES.has(s_lid[i]) and s_type[i] != BUILDING_TYPE) else -1
-		g.drivable[i] = 1 if ((s_type[i] == 0 or s_type[i] == 4) and s_lid[i] != water and s_z[i] >= 0) else 0
+		g.drivable[i] = 1 if s_z[i] >= 0 else 0
 	for x in DIM:
 		for y in DIM:
 			var z := g.surface_z[x * DIM + y]
