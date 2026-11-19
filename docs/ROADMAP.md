@@ -16,9 +16,12 @@ Goal: **drive a car, street-level, around a real GTA1 city** rendered in 3D.
       Replaces the single-height heightfield, so a car can drive **under** bridges
       and building overhangs as well as over them.
 
-### Phase 2 — Graphics data
-- [ ] `.G24` style parser: tile textures (64×64), palettes
-- [ ] Build a tile atlas `Texture2D` for the renderer
+- [x] [Esc] pause menu (`src/ui/pause_menu.gd`)
+- [x] Tile inspector ([I] in fly mode) + crosshair tile readout
+
+### Phase 2 — Graphics data ✅
+- [x] `.G24` style parser: tile textures (64×64), palettes (`src/formats/gta1_style.gd`)
+- [x] Build a tile atlas `Texture2D` for the renderer (`src/world/tile_atlas.gd`)
 - [ ] Sprite extraction (objects/cars) — for reference / future billboards
 
 ### Phase 3 — World extrusion
@@ -37,10 +40,24 @@ Goal: **drive a car, street-level, around a real GTA1 city** rendered in 3D.
 - [x] `VehicleBody3D` with arcade-tuned handling; hood faces drive-forward, [C] cycles models
 - [x] Street-level chase camera (`src/app/drive_world.gd`)
 - [x] Spawn finder picks a clear street (`src/world/spawn_finder.gd`); car drives (validated)
-- [ ] Camera wall-occlusion handling; tune handling feel in-editor
+- [x] Wall-aware chase camera with speed zoom
+- [x] Self-righting after tips/crashes; tight low-speed steering; stronger brakes
+- [x] Water: animated rivers/harbour; cars float, sink (~10s death-cam) and respawn
+- [ ] Tune handling feel in-editor
+
+### Phase 5 — Pedestrians ✅
+- [x] On-foot mode: walk/run, get in/out of cars ([Enter]) (`src/character/pedestrian.gd`)
+- [x] Mixamo idle/walk/run animation at natural cadence
+
+### Phase 6 — Traffic  ← in progress
+- [x] Road graph from the map (`src/world/road_graph.gd`), classified by the real
+      carriageway tiles, incl. bridges/overpasses and roads under walkways
+- [x] Road-map overlay ([G]): direction arrows per link, markers at junctions
+- [x] AI drivers + traffic manager (`src/vehicle/traffic_driver.gd`, `src/world/traffic_manager.gd`)
+- [ ] Rework driving as the planned hybrid system on the verified road map
+- [ ] Re-enable traffic spawning (currently off in `drive_world.gd`)
 
 ### Later
-- Pedestrians & traffic (low-poly + simple AI)
 - Lighting / ambient occlusion so the extruded city doesn't look flat
 - Mission scripting (reverse-engineered GTA1 mission format) — big, optional
 - 8-bit `.GRY` path for users with that data variant

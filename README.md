@@ -13,21 +13,35 @@ original data files, no copyrighted assets are redistributed here.
 
 ## Status
 
-Early foundation. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Playable: you can drive and walk around a real GTA1 city. Ambient traffic is
+being reworked. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
-- [x] GTA1 `.CMP` map parser (`src/formats/gta1_map.gd`) — tested + validated on real maps
-- [x] GTA1 `.G24` style/graphics parser (`src/formats/gta1_style.gd`) — tiles/palettes validated on real data
-- [x] Map → 3D mesh extruder (`src/world/`) — textured city renders in 3D (NYC: 137k tris)
-- [x] Low-poly car (Kenney CC0) + `VehicleBody3D` physics + chase camera + trimesh collision
+- [x] GTA1 `.CMP` map parser (`src/formats/gta1_map.gd`), tested and validated on real maps
+- [x] GTA1 `.G24` style/graphics parser (`src/formats/gta1_style.gd`), tiles and palettes validated on real data
+- [x] Map → 3D mesh extruder (`src/world/`): textured city with slopes/ramps, block rotation and flip UVs
+- [x] Sky, sea, sun/fog, and animated river/harbour water (cars float, sink and respawn)
+- [x] Solid trimesh collision, so you can drive over *and under* bridges and overhangs
+- [x] Low-poly PSX-style cars (ggbot, CC0) on `VehicleBody3D`, with self-righting and a wall-aware chase camera
 - [x] **Milestone:** drive a car around a loaded GTA1 city ✅
-- [ ] Slope/ramp geometry + block rotation/flip UVs (v1 draws slopes as cubes)
-- [ ] Pedestrians, traffic, lighting polish, mission scripting
+- [x] On foot: walk/run with Mixamo animations, get in and out of cars
+- [x] Pause menu, free-fly camera, tile inspector, road-map overlay
+- [~] Ambient traffic: road graph and AI drivers built, but spawning is off while the road map is verified
+- [ ] City streaming/chunking, lighting/AO polish, mission scripting
 
 ## Drive it
 
-Open the project in **Godot 4.3+** and press Play (main scene is `scenes/Drive.tscn`),
-then drive with the **arrow keys** or **WASD**. It loads a city, extrudes it,
-spawns a car on a street, and follows with a chase camera.
+Open the project in **Godot 4.6+** and press Play (main scene is `scenes/Drive.tscn`).
+It loads a city, extrudes it, spawns a car on a street, and follows with a chase camera.
+
+| Key | Action |
+|---|---|
+| Arrows / WASD | Drive, or walk on foot (Shift runs) |
+| Enter | Get in / out of a car |
+| C | Cycle car model |
+| F | Toggle free-fly camera (WASD, Q/E down/up, Shift boost) |
+| G | Toggle the road-map overlay (direction arrows + junctions) |
+| I | Tile inspector (in fly mode) |
+| Esc | Pause menu |
 
 Headless validation (no editor needed):
 
@@ -39,7 +53,7 @@ GODOT=/path/to/godot xvfb-run -a "$GODOT" --rendering-driver opengl3 \
 
 ## Requirements
 
-- [Godot 4.3+](https://godotengine.org/)
+- [Godot 4.6+](https://godotengine.org/)
 - Your own original **GTA1 data files** (the game is available as free download;
   see below). Place the level files (e.g. `NYC.CMP`, `SANB.CMP`, `MIAMI.CMP`)
   and their matching style files (`*.G24` / `*.GRY`) under [`data/`](data/).
@@ -54,9 +68,12 @@ godot --headless --path . --script res://tests/test_gta1_map.gd
 
 ```
 src/formats/   parsers for GTA1 file formats (.CMP map, .G24/.GRY style)
-src/world/     map → 3D mesh extrusion
-src/vehicle/   cars, physics, camera
-scenes/        Godot scenes (Main, Car, ...)
+src/world/     map → 3D mesh extrusion, collision, water, scenery, road graph, traffic
+src/vehicle/   cars, physics, AI traffic driver
+src/character/ on-foot pedestrian
+src/app/       game loop, cameras, HUD
+src/ui/        pause menu
+scenes/        Godot scenes (Drive, Car, ...)
 tests/         headless GDScript tests
 data/          <-- you put your original GTA1 files here (git-ignored)
 docs/          format reference & roadmap
