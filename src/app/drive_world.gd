@@ -133,8 +133,34 @@ var _saved_mask := 1
 var _water_cam_pos := Vector3.ZERO   # held camera spot while the car drowns
 
 
+## Command-line city override: `--city=SANB` or `--city SANB` (case-insensitive).
+## Works after Godot's `--` separator (`godot --path . -- --city=MIAMI`) or straight
+## on an exported build (`GTA3D.exe --city=MIAMI`). Returns "" if not given.
+static func _city_from_cmdline() -> String:
+	var args := OS.get_cmdline_user_args() + OS.get_cmdline_args()
+	for i in args.size():
+		var a: String = args[i]
+		if a.begins_with("--city="):
+			return a.substr(7).to_upper()
+		if a == "--city" and i + 1 < args.size():
+			return args[i + 1].to_upper()
+	return ""
+
+
 func _ready() -> void:
 	_add_drive_actions()
+
+	var cli_city := _city_from_cmdline()
+	if cli_city != "":
+		city = cli_city
+	if not FileAccess.file_exists("res://data/%s.CMP" % city):
+		var found := PackedStringArray()
+		for f in DirAccess.get_files_at("res://data/"):
+			if f.get_extension().to_upper() == "CMP":
+				found.append(f.get_basename())
+		push_error("No res://data/%s.CMP — available cities: %s" % [city, ", ".join(found)])
+		return
+	print("[drive] city: %s" % city)
 
 	var map := GTA1Map.load_file("res://data/%s.CMP" % city)
 	if map == null:

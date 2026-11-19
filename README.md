@@ -33,6 +33,13 @@ being reworked. See [docs/ROADMAP.md](docs/ROADMAP.md).
 Open the project in **Godot 4.6+** and press Play (main scene is `scenes/Drive.tscn`).
 It loads a city, extrudes it, spawns a car on a street, and follows with a chase camera.
 
+From a terminal, pick the city with `--city` (default `NYC`; also `SANB`, `MIAMI`):
+
+```sh
+godot --path . -- --city=MIAMI     # via Godot (note the -- separator)
+./GTA3D.exe --city=SANB            # exported build
+```
+
 | Key | Action |
 |---|---|
 | Arrows / WASD | Drive, or walk on foot (Shift runs) |
