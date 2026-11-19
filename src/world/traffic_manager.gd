@@ -26,13 +26,13 @@ var _rng := RandomNumberGenerator.new()
 ## cell, only cells within `radius` (Chebyshev) are eligible.
 func populate(road: RoadGraph, count: int, near := Vector2i(-1, -1), radius := 50) -> void:
 	graph = road
-	var candidates: Array[Vector2i] = []
-	for cell: Vector2i in graph.nodes:
-		if ((graph.nodes[cell] as Dictionary).links as Array).size() < 2:
+	var candidates: Array[Vector3i] = []
+	for key: Vector3i in graph.nodes:
+		if ((graph.nodes[key] as Dictionary).links as Array).size() < 2:
 			continue
-		if near.x >= 0 and (absi(cell.x - near.x) > radius or absi(cell.y - near.y) > radius):
+		if near.x >= 0 and (absi(key.x - near.x) > radius or absi(key.y - near.y) > radius):
 			continue
-		candidates.append(cell)
+		candidates.append(key)
 	if candidates.is_empty():
 		push_warning("TrafficManager: no spawn cells found")
 		return
@@ -45,13 +45,13 @@ func populate(road: RoadGraph, count: int, near := Vector2i(-1, -1), radius := 5
 		made += 1
 
 
-func _spawn(cell: Vector2i) -> void:
+func _spawn(cell: Vector3i) -> void:
 	var car := TrafficDriver.new()
 	var pair: Array = MODELS[_rng.randi() % MODELS.size()]
 	car.model_path = pair[0]
 	car.texture_path = pair[1]
 	car.graph = graph
-	car.start_cell = cell
+	car.start_node = cell
 	add_child(car)
 
 	# Drop it on the road facing a neighbour (Car's hood is -Z, which Basis.looking_at
@@ -60,7 +60,7 @@ func _spawn(cell: Vector2i) -> void:
 	var links: Array = node.links
 	var dir := Vector3(0, 0, 1)
 	if not links.is_empty():
-		var nb: Vector2i = links[_rng.randi() % links.size()]
+		var nb: Vector3i = links[_rng.randi() % links.size()]
 		var d := Vector3(nb.x - cell.x, 0.0, nb.y - cell.y)
 		if d.length() > 0.01:
 			dir = d.normalized()

@@ -34,9 +34,11 @@ const REVERSE_TIME := 0.7
 const RESPAWN_TIME := 5.0      # seconds lost (off-road / wedged) before we re-place it
 
 var graph: RoadGraph
-var start_cell := Vector2i.ZERO
+var start_node := RoadGraph.NONE   # RoadGraph node key (x, y, level) it was spawned on
 
-var _path: Array[Vector2i] = []
+## Planned route as RoadGraph node keys (x, y, level), so a car on an overpass plans
+## along the deck and one underneath plans along the street.
+var _path: Array[Vector3i] = []
 var _stuck := 0.0
 var _reverse := 0.0
 var _lost := 0.0
@@ -95,11 +97,11 @@ func _drive(delta: float) -> void:
 	if not graph.is_drivable(cell):
 		# Knocked off the drivable surface: make for the nearest road cell.
 		_path.clear()
-		var nn := _nearest_road(cell)
+		var nn := _nearest_road(cell, pos.y)
 		target = _cell_center(nn) if nn.x >= 0 else here + Vector2(flat_fwd.x, flat_fwd.z)
 	else:
 		_advance_path(here)
-		_extend_path(cell, flat_fwd)
+		_extend_path(cell, pos.y, flat_fwd)
 		# Aim a little way ahead so the line is smooth; reach further when close in.
 		var ai := 1
 		if _path.size() > 2 and here.distance_to(_cell_center(_path[1])) < 1.2:
@@ -159,9 +161,9 @@ func _advance_path(here: Vector2) -> void:
 ## Refill the planned route up to PATH_LEN, carrying straight on where possible. The
 ## path is always road cells (the car may sit on the verge between them), so we anchor
 ## an empty path to the nearest road cell rather than the car's raw cell.
-func _extend_path(cell: Vector2i, flat_fwd: Vector3) -> void:
+func _extend_path(cell: Vector2i, y: float, flat_fwd: Vector3) -> void:
 	if _path.is_empty():
-		var rc := _nearest_road(cell)
+		var rc := _nearest_road(cell, y)
 		if rc.x < 0:
 			return
 		_path.append(rc)
@@ -180,23 +182,23 @@ func _extend_path(cell: Vector2i, flat_fwd: Vector3) -> void:
 func _corner_speed() -> float:
 	var n := _path.size()
 	for i in range(mini(CORNER_LOOK, n - 2)):
-		var a := _path[i + 1] - _path[i]
-		var b := _path[i + 2] - _path[i + 1]
+		var a := RoadGraph.cell_of(_path[i + 1] - _path[i])
+		var b := RoadGraph.cell_of(_path[i + 2] - _path[i + 1])
 		if a != b:                       # a direction change = a corner i+1 cells ahead
 			return lerpf(CORNER_SPEED, CRUISE, clampf(float(i) / 2.0, 0.0, 1.0))
 	return CRUISE
 
 
 ## Choose the link best aligned with our current motion (to (re)anchor a route).
-func _pick_from(cell: Vector2i, flat_fwd: Vector3) -> Vector2i:
+func _pick_from(cell: Vector3i, flat_fwd: Vector3) -> Vector3i:
 	if not graph.nodes.has(cell):
 		return cell
 	var links: Array = (graph.nodes[cell] as Dictionary).links
 	if links.is_empty():
 		return cell
-	var best: Vector2i = links[0]
+	var best: Vector3i = links[0]
 	var best_dot := -2.0
-	for nb: Vector2i in links:
+	for nb: Vector3i in links:
 		var d := Vector3(nb.x - cell.x, 0.0, nb.y - cell.y).normalized()
 		var dot := d.dot(flat_fwd)
 		if dot > best_dot:
@@ -207,30 +209,34 @@ func _pick_from(cell: Vector2i, flat_fwd: Vector3) -> Vector2i:
 
 ## Heading-preserving turn choice: carry straight on if we can, else take a turn,
 ## never U-turning unless it's a dead end.
-func _pick_next(cell: Vector2i, prev: Vector2i) -> Vector2i:
+func _pick_next(cell: Vector3i, prev: Vector3i) -> Vector3i:
 	if not graph.nodes.has(cell):
 		return cell
 	var links: Array = (graph.nodes[cell] as Dictionary).links
 	if links.is_empty():
 		return cell
-	var heading := cell - prev
-	var avail: Array[Vector2i] = []
-	for nb: Vector2i in links:
-		if links.size() > 1 and nb - cell == -heading:
+	var heading := RoadGraph.cell_of(cell - prev)   # map-plane heading; level may change on ramps
+	var avail: Array[Vector3i] = []
+	var straight := RoadGraph.NONE
+	for nb: Vector3i in links:
+		var step := RoadGraph.cell_of(nb - cell)
+		if links.size() > 1 and step == -heading:
 			continue
 		avail.append(nb)
+		if step == heading:
+			straight = nb
 	if avail.is_empty():
-		avail = links
-	var straight := cell + heading
-	if heading != Vector2i.ZERO and avail.has(straight) and _rng.randf() < STRAIGHT_BIAS:
+		avail.assign(links)
+	if heading != Vector2i.ZERO and straight != RoadGraph.NONE and _rng.randf() < STRAIGHT_BIAS:
 		return straight
 	return avail[_rng.randi() % avail.size()]
 
 
-## Nearest road cell to `cell` within RECOVER_RADIUS (ring search), or (-1,-1).
-func _nearest_road(cell: Vector2i) -> Vector2i:
+## Nearest road node to `cell` within RECOVER_RADIUS (ring search) — on the level
+## closest to height `y` — or RoadGraph.NONE.
+func _nearest_road(cell: Vector2i, y: float) -> Vector3i:
 	if graph.is_road(cell):
-		return cell
+		return graph.node_at(cell, y)
 	for r in range(1, RECOVER_RADIUS + 1):
 		var best := Vector2i(-1, -1)
 		var best_d := 1e9
@@ -245,8 +251,8 @@ func _nearest_road(cell: Vector2i) -> Vector2i:
 						best_d = d
 						best = c
 		if best.x >= 0:
-			return best
-	return Vector2i(-1, -1)
+			return graph.node_at(best, y)
+	return RoadGraph.NONE
 
 
 ## Distance to the nearest CAR straight ahead, or a large number if none is in range.
@@ -267,7 +273,7 @@ func _clear_ahead() -> float:
 	return from.distance_to(hit.position)
 
 
-func _cell_center(cell: Vector2i) -> Vector2:
+func _cell_center(cell: Vector3i) -> Vector2:
 	return Vector2(cell.x + 0.5, cell.y + 0.5)
 
 
@@ -275,7 +281,7 @@ func _cell_center(cell: Vector2i) -> Vector2:
 ## car that slid off a bank pops back where it left), else a random one.
 func _respawn() -> void:
 	var cell := Vector2i(int(floor(global_position.x)), int(floor(global_position.z)))
-	var c := _nearest_road(cell)
+	var c := _nearest_road(cell, global_position.y)
 	if c.x < 0:
 		var keys: Array = graph.nodes.keys()
 		if keys.is_empty():
@@ -285,7 +291,7 @@ func _respawn() -> void:
 	var links: Array = node.links
 	var dir := Vector3(0, 0, 1)
 	if not links.is_empty():
-		var nb: Vector2i = links[_rng.randi() % links.size()]
+		var nb: Vector3i = links[_rng.randi() % links.size()]
 		var d := Vector3(nb.x - c.x, 0.0, nb.y - c.y)
 		if d.length() > 0.01:
 			dir = d.normalized()

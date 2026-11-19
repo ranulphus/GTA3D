@@ -329,9 +329,16 @@ func _update_inspect() -> void:
 		return
 	var p: Vector3 = hit.position
 	var cell := Vector2i(int(floor(p.x)), int(floor(p.z)))
-	var lid := _road.lid_at(cell)
-	var on_road := _road.is_road(cell)
-	_look.text = "look: (%d, %d)  tile %d  %s" % [cell.x, cell.y, lid, "ROAD" if on_road else "not road"]
+	# Report the road surface at the height we hit (a deck, or the street under it).
+	var key := _road.node_at(cell, p.y)
+	var on_road := key != RoadGraph.NONE and absf(p.y - (_road.nodes[key] as Dictionary).pos.y) < 0.6
+	if on_road:
+		var nd: Dictionary = _road.nodes[key]
+		var lvls: Array = _road.levels[cell]
+		_look.text = "look: (%d, %d)  tile %d  ROAD level %d%s  ·  %d links" % [cell.x, cell.y,
+			nd.lid, key.z, (" of %d" % lvls.size()) if lvls.size() > 1 else "", (nd.links as Array).size()]
+	else:
+		_look.text = "look: (%d, %d)  tile %d  not road" % [cell.x, cell.y, _road.lid_at(cell)]
 	if _inspect_marker != null:
 		_inspect_marker.visible = true
 		_inspect_marker.global_position = Vector3(cell.x + 0.5, p.y + 0.06, cell.y + 0.5)
